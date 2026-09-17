@@ -7,6 +7,7 @@ Authors: Maxence Morel Dierckx
 """
 from litestar import Litestar
 from litestar.di import Provide
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from .db import db_session
@@ -19,7 +20,7 @@ def create_app(debug=False) -> Litestar:
             health.router,
             auth.router
         ],
-        dependencies={"session": Provide(db_session)},
+        dependencies={"session": (db_session)},
         debug=debug,
     )
 

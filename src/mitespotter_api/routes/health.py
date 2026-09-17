@@ -9,6 +9,7 @@ from __future__ import annotations
 
 
 from litestar import Router, get
+from litestar.di import NamedDependency
 from litestar.exceptions import ServiceUnavailableException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ async def health_check() -> dict[str, str]:
 
 
 @get("/health/db", name="health_check_db", tags=["health"])
-async def health_check_db(session: AsyncSession) -> dict[str, str]:
+async def health_check_db(session: NamedDependency[AsyncSession]) -> dict[str, str]:
     try:
         await session.execute(text("SELECT 1"))
     except Exception as e:
