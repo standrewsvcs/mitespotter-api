@@ -440,7 +440,7 @@ mitespotter-api/
 │   ├── backups/
 │   │   ├── 2026-08-09.dump
 │   │   └── ...
-│   ├── dataset_snapshot/
+│   ├── datasets/
 │   │   ├── mitespotter_2026-08-09.zip
 │   │   └── ...
 │   ├── images/
@@ -481,10 +481,12 @@ mitespotter-api/
 ├── services/
 │   ├── ingest.py	# Decode > hash > dedupe > de-EXIF > derive thumbnail/pyramid
 │   └── review.py	# Handles image status transitions and verification/rejection
+├── tests/
 ├── .gitignore
+├── app.py			# Litestar app
 ├── config.py		# Constants, paths, secrets
 ├── db.py			# Database session & initialisation
-├── main.py			# Litestar app runner
+├── main.py			# Server runner
 ├── models.py		# Database models (SQLAlchemy)
 ├── schemas.py		# API schemas (Pydantic)
 ├── pyproject.toml
@@ -534,6 +536,18 @@ GET /download/snapshot		# rolling snapshot; clearly labelled not citable
 | JPEG XL                                  | `imagecodecs`               |
 | CR2, NEF, ARW, ORF, RW2, DNG, PEF        | `rawpy`                     |
 | RAW (generic)                            | `rawpy` + depends on camera |
+
+```
+[project.scripts]
+minstall = "scripts.install:main"
+mstart = "scripts.start:main"
+mtest = "scripts.test:main"
+madduser = "scripts.adduser:main"
+mclean = "scripts.clean:main"
+mhttps = "scripts.https:main"
+mhelp = "scripts.help:main"
+```
+Developer tools.
 
 ### Sprint 1: Andy
 
