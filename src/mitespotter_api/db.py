@@ -28,7 +28,7 @@ from .config import DATABASE_URL, SQL_ECHO
 
 
 # create_async_engine parses the URL and builds a pool without opening a connection;
-# this module can be safely imported without touching the database
+# this db.py can be safely imported without touching the database
 engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=SQL_ECHO, pool_pre_ping=True)
 
 
@@ -51,11 +51,13 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 async def init_db() -> None:
     """Initialise the database extensions and create tables if they don't exist"""
-    from . import models
+    #from . import models
 
     async with engine.begin() as conn:
+        if SQL_ECHO:
+            print(f"Connection successful to database {DATABASE_URL}")
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS CITEXT;"))
-        await conn.run_sync(models.Base.metadata.create_all)
+        #await conn.run_sync(models.Base.metadata.create_all)
 
 
 async def close_db() -> None:

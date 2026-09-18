@@ -10,12 +10,14 @@ from litestar.di import Provide
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-from .db import db_session
+from .config import DEBUG
+from .db import db_lifespan, db_session
 from .routes import health, auth
 
 
-def create_app(debug=False) -> Litestar:
+def create_app(debug=DEBUG) -> Litestar:
     return Litestar(
+        lifespan=[db_lifespan],
         route_handlers=[
             health.router,
             auth.router

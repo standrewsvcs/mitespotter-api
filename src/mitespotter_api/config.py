@@ -20,7 +20,7 @@ def _env_str(name: str, default: str | None = None) -> str:
     if raw is None or raw == "":
         raw = default
     if raw is None:
-        raise ValueError(f"Environment variable '{name}' is not set and no default value was provided")
+        raise ValueError(f"{name} must be set")
     return str(raw).strip()
 
 
@@ -28,25 +28,25 @@ def _env_bool(name: str, default: bool | None = None) -> bool:
     raw = os.environ.get(name, "").strip().lower()
     if raw is None or raw == "":
         if default is None:
-            raise ValueError(f"Environment variable '{name}' is not set and no default value was provided")
+            raise ValueError(f"'{name}' must be set")
         return default
     if raw in ("1", "true", "yes", "on"):
         return True
     if raw in ("0", "false", "no", "off"):
         return False
-    raise ValueError(f"Environment variable '{name}' must be a boolean, got '{raw}'")
+    raise ValueError(f"'{name}' must be a boolean, got '{raw}'")
 
 
 def _env_int(name: str, default: int | None = None) -> int:
     raw = os.environ.get(name, "").strip()
     if raw is None or raw == "":
         if default is None:
-            raise ValueError(f"Environment variable '{name}' is not set and no default value was provided")
+            raise ValueError(f"'{name}' must be set")
         return default
     try:
         return int(raw)
     except ValueError as e:
-        raise ValueError(f"Environment variable '{name}' must be an integer, got '{raw}'") from e
+        raise ValueError(f"'{name}' must be an integer, got '{raw}'") from e
 
 
 # MARK: Runtime env
@@ -83,7 +83,7 @@ SECRET_KEY = _resolve_secret_key()
 
 # MARK: Database
 
-DATABASE_URL = _env_str("MITESPOTTER_DATABASE_URL", "sqlite+aiosqlite:///mitespotter.db")
+DATABASE_URL = _env_str("MITESPOTTER_DATABASE_URL", None)   # No default, must be set
 SQL_ECHO = _env_bool("MITESPOTTER_SQL_ECHO", DEBUG)
 
 

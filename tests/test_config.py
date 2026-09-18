@@ -36,15 +36,21 @@ CONFIG_ENV_VARS = (
 
 
 @pytest.fixture
-def load_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    """Load a fresh config module under a controlled environment"""
+def load_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, required_env: dict[str, str]):
+    """Load a fresh config module under a controlled environment.
+
+    Init loads all REQUIRED_ENV vars plus an isolated DATA_DIR, then
+    applies the caller's overrides. Can unset a var by passing None,
+    e.g. MITESPOTTER_DATABASE_URL=None
+    """
     counter = itertools.count()
 
     def _load(**env: str | None) -> ModuleType:
         for name in CONFIG_ENV_VARS:
             monkeypatch.delenv(name, raising=False)
 
-        for name, value in {"MITESPOTTER_DATA_DIR": str(tmp_path / "data"), **env}.items():
+        baseline = {**required_env, "MITESPOTTER_DATA_DIR": str(tmp_path / "data")}
+        for name, value in {**baseline, **env}.items():
             if value is not None:
                 monkeypatch.setenv(name, value)
 
@@ -155,11 +161,18 @@ def test_prod_with_secret_key(load_config):
 
 # MARK: Database
 
-def test_database_url_default_and_override(load_config):
-    assert load_config().DATABASE_URL == "sqlite+aiosqlite:///mitespotter.db"
+def test_database_url_is_required(load_config):
+    with pytest.raises(ValueError, match="MITESPOTTER_DATABASE_URL must be set"):
+        load_config(MITESPOTTER_DATABASE_URL=None)
 
+
+def test_database_url_can_be_overridden(load_config):
     overridden = load_config(MITESPOTTER_DATABASE_URL="postgresql+psycopg://u:p@localhost/db")
     assert overridden.DATABASE_URL == "postgresql+psycopg://u:p@localhost/db"
+
+
+def test_database_url_falls_back_to_test_baseline(load_config, required_env):
+    assert load_config().DATABASE_URL == required_env["MITESPOTTER_DATABASE_URL"]
 
 
 # MARK: Paths
