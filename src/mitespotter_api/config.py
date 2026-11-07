@@ -53,7 +53,7 @@ def _env_choice(environ: Mapping[str, str], name: str, choices: tuple[str, ...],
     return value
 
 
-# MARK: Settings
+# MARK: Config
 
 ENVIRONMENTS = ("dev", "test", "prod")
 STORAGE_BACKENDS = ("local", "r2")
@@ -61,8 +61,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @dataclass(frozen=True)
-class Settings:
-    """Everything the application reads from the environment"""
+class Config:
+    """Application configuration: values read from the environment, plus fixed domain values"""
     environment: str
     debug: bool
     host: str
@@ -80,6 +80,19 @@ class Settings:
     r2_secret_access_key: str | None
     public_data_url: str
 
+    # Fixed domain values; the database CHECK constraints are built from these
+    splits: tuple[str, ...] = ("train", "val", "test")
+    image_event_types: tuple[str, ...] = ("upload", "complete", "verify", "reject", "delete")
+    annotation_event_types: tuple[str, ...] = ("create", "update", "confirm", "delete")
+    report_reasons: tuple[str, ...] = (
+        "not_a_board",
+        "duplicate",
+        "unusable_quality",
+        "personal_or_inappropriate",
+        "incorrect_annotations",  # verified images only
+        "other",
+    )
+
     @property
     def is_production(self) -> bool:
         return self.environment == "prod"
@@ -93,7 +106,7 @@ class Settings:
         return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
 
     @classmethod
-    def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Config:
         env = os.environ if environ is None else environ
 
         environment = _env_choice(env, "MITESPOTTER_ENV", ENVIRONMENTS, "dev")
@@ -135,31 +148,31 @@ class Settings:
         )
 
 
-settings = Settings.from_env()
+config = Config.from_env()
 
 
-# MARK: Module constants (derived from settings)
+# MARK: Module constants (derived from config)
 
-ENVIRONMENT = settings.environment
-IS_PRODUCTION = settings.is_production
-IS_TEST = settings.is_test
-DEBUG = settings.debug
+ENVIRONMENT = config.environment
+IS_PRODUCTION = config.is_production
+IS_TEST = config.is_test
+DEBUG = config.debug
 
-HOST = settings.host
-PORT = settings.port
+HOST = config.host
+PORT = config.port
 
-SECRET_KEY = settings.secret_key
+SECRET_KEY = config.secret_key
 
-DATABASE_URL = settings.database_url
-SQL_ECHO = settings.sql_echo
+DATABASE_URL = config.database_url
+SQL_ECHO = config.sql_echo
 
-MAX_UPLOAD_BYTES = settings.max_upload_bytes
-JPEG_QUALITY = settings.jpeg_quality
+MAX_UPLOAD_BYTES = config.max_upload_bytes
+JPEG_QUALITY = config.jpeg_quality
 
 
 # MARK: Paths
 
-DATA_DIR = settings.data_dir
+DATA_DIR = config.data_dir
 
 BACKUPS_DIR    = DATA_DIR / "backups"
 DATASETS_DIR   = DATA_DIR / "datasets"
@@ -185,7 +198,6 @@ def create_data_dirs() -> None:
 
 # MARK: Dataset
 
-SPLITS = ("train", "val", "test")
 SPLIT_TRAIN_BELOW = 70  # First 70% of the dataset is used for training
 SPLIT_VAL_BELOW = 85    # Next 15% of the dataset is used for validation
                         # Remaining 15% of the dataset is used for testing
@@ -202,18 +214,6 @@ CATEGORY_DEBRIS = Category(id=1, name="debris", supercategory="non-mite")
 CATEGORY_VARROA = Category(id=2, name="varroa destructor", supercategory="mite")
 CATEGORIES = (CATEGORY_DEBRIS, CATEGORY_VARROA)
 CATEGORY_BY_ID = {category.id: category for category in CATEGORIES}
-
-IMAGE_EVENT_TYPES = ("upload", "complete", "verify", "reject", "delete")
-ANNOTATION_EVENT_TYPES = ("create", "update", "confirm", "delete")
-
-REPORT_REASONS = (
-    "not_a_board",
-    "duplicate",
-    "unusable_quality",
-    "personal_or_inappropriate",
-    "incorrect_annotations",
-    "other",
-)
 
 COCO_LICENSE = {
     "id": 1,

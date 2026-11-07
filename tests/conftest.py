@@ -51,12 +51,12 @@ def required_env() -> dict[str, str]:
 
 
 @pytest.fixture
-def make_settings(tmp_path: Path):
-    """Build Settings from an explicit environment, without touching os.environ."""
-    from mitespotter_api.config import Settings
+def make_config(tmp_path: Path):
+    """Build Config from an explicit environment, without touching os.environ."""
+    from mitespotter_api.config import Config
 
     def _make(database_url: str = BASELINE_ENV["MITESPOTTER_DATABASE_URL"], **env: str):
-        return Settings.from_env({
+        return Config.from_env({
             "MITESPOTTER_ENV": "test",
             "MITESPOTTER_SQL_ECHO": "false",
             "MITESPOTTER_DATA_DIR": str(tmp_path / "data"),
@@ -72,11 +72,11 @@ def make_settings(tmp_path: Path):
 def _upgrade(database_url: str, revision: str = "head") -> None:
     from advanced_alchemy.alembic.commands import AlembicCommands
 
-    from mitespotter_api.config import Settings
+    from mitespotter_api.config import Config
     from mitespotter_api.db import make_alchemy_config
 
-    settings = Settings.from_env({"MITESPOTTER_DATABASE_URL": database_url, "MITESPOTTER_SQL_ECHO": "false"})
-    AlembicCommands(sqlalchemy_config=make_alchemy_config(settings)).upgrade(revision)
+    config = Config.from_env({"MITESPOTTER_DATABASE_URL": database_url, "MITESPOTTER_SQL_ECHO": "false"})
+    AlembicCommands(sqlalchemy_config=make_alchemy_config(config)).upgrade(revision)
 
 
 @pytest.fixture(scope="session")

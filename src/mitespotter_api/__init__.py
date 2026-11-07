@@ -10,12 +10,12 @@ Authors: Maxence Morel Dierckx
 def main() -> None:
     import uvicorn
 
-    from .config import settings
+    from .config import config
 
     uvicorn.run(
         "mitespotter_api.app:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.environment == "dev",
-        log_level="debug" if settings.debug else "info",
+        host=config.host,
+        port=config.port,
+        reload=config.environment == "dev",
+        log_level="debug" if config.debug else "info",
     )

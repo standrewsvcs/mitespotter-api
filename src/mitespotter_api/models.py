@@ -41,7 +41,7 @@ from sqlalchemy.sql.elements import conv
 from sqlalchemy.types import TypeDecorator
 
 
-from .config import ANNOTATION_EVENT_TYPES, IMAGE_EVENT_TYPES, REPORT_REASONS, SPLITS
+from .config import config
 
 
 UINT64_MAX = 2**64 - 1
@@ -107,7 +107,7 @@ class User(DefaultBase):
 class Image(DefaultBase):
     __tablename__ = "images"
     __table_args__ = (
-        CheckConstraint(_in("split", SPLITS), name=conv("ck_image_split")),
+        CheckConstraint(_in("split", config.splits), name=conv("ck_image_split")),
         CheckConstraint(f"phash >= 0 AND phash <= {UINT64_MAX}", name=conv("ck_image_phash")),
         Index("idx_images_date_captured", "date_captured"),
     )
@@ -168,7 +168,7 @@ class Annotation(DefaultBase):
 class ImageEvent(DefaultBase):
     __tablename__ = "image_events"
     __table_args__ = (
-        CheckConstraint(_in("type", IMAGE_EVENT_TYPES), name=conv("ck_image_events_type")),
+        CheckConstraint(_in("type", config.image_event_types), name=conv("ck_image_events_type")),
         Index("idx_image_events_image_id_id", "image_id", "id"),
         Index("idx_image_events_user_id", "user_id", "id"),
     )
@@ -183,7 +183,7 @@ class ImageEvent(DefaultBase):
 class AnnotationEvent(DefaultBase):
     __tablename__ = "annotation_events"
     __table_args__ = (
-        CheckConstraint(_in("type", ANNOTATION_EVENT_TYPES), name=conv("ck_annotation_events_type")),
+        CheckConstraint(_in("type", config.annotation_event_types), name=conv("ck_annotation_events_type")),
         CheckConstraint(_BBOX_CHECK, name=conv("ck_annotation_events_bbox")),
         # Only model annotations carry a confidence.
         CheckConstraint(
@@ -211,7 +211,7 @@ class AnnotationEvent(DefaultBase):
 class Report(DefaultBase):
     __tablename__ = "reports"
     __table_args__ = (
-        CheckConstraint(_in("reason", REPORT_REASONS), name=conv("ck_report_reason")),
+        CheckConstraint(_in("reason", config.report_reasons), name=conv("ck_report_reason")),
         CheckConstraint("reason <> 'other' OR notes IS NOT NULL", name=conv("ck_report_other_notes")),
         CheckConstraint("(resolver_id IS NULL) = (resolved_at IS NULL)", name=conv("ck_report_resolved")),
         # One open report per user per image

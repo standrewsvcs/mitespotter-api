@@ -77,10 +77,10 @@ def test_check_constraints_keep_their_planned_names():
 
 
 @pytest.mark.parametrize(("model", "name", "values"), [
-    (models.Image, "ck_image_split", config.SPLITS),
-    (models.ImageEvent, "ck_image_events_type", config.IMAGE_EVENT_TYPES),
-    (models.AnnotationEvent, "ck_annotation_events_type", config.ANNOTATION_EVENT_TYPES),
-    (models.Report, "ck_report_reason", config.REPORT_REASONS),
+    (models.Image, "ck_image_split", config.config.splits),
+    (models.ImageEvent, "ck_image_events_type", config.config.image_event_types),
+    (models.AnnotationEvent, "ck_annotation_events_type", config.config.annotation_event_types),
+    (models.Report, "ck_report_reason", config.config.report_reasons),
 ])
 def test_value_checks_are_built_from_config(model, name, values):
     assert _checks(model)[name].endswith(f"IN ({', '.join(repr(v) for v in values)})")

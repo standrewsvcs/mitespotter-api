@@ -162,15 +162,15 @@ def test_r2_exists_reraises_unexpected_errors():
 
 # MARK: Factory
 
-def test_make_storage_local(make_settings, tmp_path):
-    storage = make_storage(make_settings())
+def test_make_storage_local(make_config, tmp_path):
+    storage = make_storage(make_config())
     assert isinstance(storage, LocalStorage)
     assert storage.root == (tmp_path / "data").resolve()
     assert storage.public_url("images/a.jpg") == "/data/images/a.jpg"
 
 
-def test_make_storage_r2(make_settings):
-    storage = make_storage(make_settings(**R2_ENV, MITESPOTTER_PUBLIC_DATA_URL="https://data.mitespotter.org/"))
+def test_make_storage_r2(make_config):
+    storage = make_storage(make_config(**R2_ENV, MITESPOTTER_PUBLIC_DATA_URL="https://data.mitespotter.org/"))
     assert isinstance(storage, R2Storage)
     assert storage.bucket == BUCKET
     assert storage.client.meta.endpoint_url == "https://acc123.r2.cloudflarestorage.com"

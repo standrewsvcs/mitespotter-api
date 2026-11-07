@@ -21,11 +21,11 @@ def _query(url: str, sql: str) -> list[tuple]:
 def _commands(url: str):
     from advanced_alchemy.alembic.commands import AlembicCommands
 
-    from mitespotter_api.config import Settings
+    from mitespotter_api.config import Config
     from mitespotter_api.db import make_alchemy_config
 
-    settings = Settings.from_env({"MITESPOTTER_DATABASE_URL": url, "MITESPOTTER_SQL_ECHO": "false"})
-    return AlembicCommands(sqlalchemy_config=make_alchemy_config(settings))
+    config = Config.from_env({"MITESPOTTER_DATABASE_URL": url, "MITESPOTTER_SQL_ECHO": "false"})
+    return AlembicCommands(sqlalchemy_config=make_alchemy_config(config))
 
 
 def test_head_seeds_the_configured_categories(database_url):

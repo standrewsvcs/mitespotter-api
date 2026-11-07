@@ -23,7 +23,7 @@ from alembic.autogenerate import render
 from sqlalchemy.types import TypeDecorator
 
 
-from .config import Settings
+from .config import Config
 
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
@@ -32,15 +32,20 @@ VERSION_TABLE = "alembic_version"
 SESSION_DEPENDENCY_KEY = "db_session"
 
 
-def make_alchemy_config(settings: Settings) -> SQLAlchemyAsyncConfig:
+def make_alchemy_config(config: Config) -> SQLAlchemyAsyncConfig:
     """Build the advanced-alchemy config: engine, autocommitting session dependency and Alembic.
 
     The schema is only ever changed through Alembic, so create_all is off.
     Building the config parses the URL and creates no connection.
     """
     return SQLAlchemyAsyncConfig(
-        connection_string=settings.database_url,
-        engine_config=EngineConfig(echo=settings.sql_echo, pool_pre_ping=True),
+        connection_string=config.database_url,
+        engine_config=EngineConfig(
+            echo=config.sql_echo,
+            pool_pre_ping=True,
+            # Sessions run in UTC, so every timestamptz (e.g. DEFAULT now()) is read back in UTC
+            connect_args={"options": "-c timezone=UTC"},
+        ),
         before_send_handler="autocommit",
         session_dependency_key=SESSION_DEPENDENCY_KEY,
         create_all=False,

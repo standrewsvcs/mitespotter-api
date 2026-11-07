@@ -13,27 +13,27 @@ from litestar.testing import TestClient
 
 
 @pytest.fixture
-def client(make_settings):
+def client(make_config):
     from mitespotter_api.app import create_app
-    with TestClient(app=create_app(make_settings())) as client:
+    with TestClient(app=create_app(make_config())) as client:
         yield client
 
 
-def test_module_app_uses_default_settings():
+def test_module_app_uses_default_config():
     from mitespotter_api import config
     from mitespotter_api.app import app
-    assert app.debug is config.settings.debug
+    assert app.debug is config.config.debug
 
 
-def test_debug_follows_settings(make_settings):
+def test_debug_follows_config(make_config):
     from mitespotter_api.app import create_app
-    assert create_app(make_settings(MITESPOTTER_DEBUG="false")).debug is False
-    assert create_app(make_settings(MITESPOTTER_DEBUG="true")).debug is True
+    assert create_app(make_config(MITESPOTTER_DEBUG="false")).debug is False
+    assert create_app(make_config(MITESPOTTER_DEBUG="true")).debug is True
 
 
-def test_every_route_is_under_api(make_settings):
+def test_every_route_is_under_api(make_config):
     from mitespotter_api.app import API_PREFIX, create_app
-    paths = {route.path for route in create_app(make_settings()).routes}
+    paths = {route.path for route in create_app(make_config()).routes}
     assert paths
     assert all(path == API_PREFIX or path.startswith(f"{API_PREFIX}/") for path in paths)
 

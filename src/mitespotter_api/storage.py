@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol
 
 
-from .config import IMMUTABLE_CACHE_CONTROL, Settings
+from .config import IMMUTABLE_CACHE_CONTROL, Config
 
 
 if TYPE_CHECKING:
@@ -121,17 +121,17 @@ class R2Storage(_PublicUrlMixin):
         self.public_data_url = public_data_url.rstrip("/")
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> R2Storage:
+    def from_config(cls, config: Config) -> R2Storage:
         import boto3
 
         client = boto3.client(
             "s3",
-            endpoint_url=settings.r2_endpoint_url,
-            aws_access_key_id=settings.r2_access_key_id,
-            aws_secret_access_key=settings.r2_secret_access_key,
+            endpoint_url=config.r2_endpoint_url,
+            aws_access_key_id=config.r2_access_key_id,
+            aws_secret_access_key=config.r2_secret_access_key,
             region_name="auto",
         )
-        return cls(client, bucket=settings.r2_bucket or "", public_data_url=settings.public_data_url)
+        return cls(client, bucket=config.r2_bucket or "", public_data_url=config.public_data_url)
 
     def put(
         self,
@@ -181,7 +181,7 @@ class R2Storage(_PublicUrlMixin):
 
 # MARK: Factory
 
-def make_storage(settings: Settings) -> Storage:
-    if settings.storage == "r2":
-        return R2Storage.from_settings(settings)
-    return LocalStorage(settings.data_dir, public_data_url=settings.public_data_url)
+def make_storage(config: Config) -> Storage:
+    if config.storage == "r2":
+        return R2Storage.from_config(config)
+    return LocalStorage(config.data_dir, public_data_url=config.public_data_url)

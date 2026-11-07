@@ -38,7 +38,7 @@ def test_categories_match_the_seed(category):
 
 def test_report_reasons_match_the_check_constraint():
     block = re.search(r"CHECK \(reason IN \((.*?)\)\)", PLANNING, re.S).group(1)
-    assert tuple(re.findall(r"'(\w+)'", block)) == config.REPORT_REASONS
+    assert tuple(re.findall(r"'(\w+)'", block)) == config.config.report_reasons
 
 
 def test_split_thresholds():
@@ -46,7 +46,7 @@ def test_split_thresholds():
 
 
 def test_splits_match_the_check_constraint():
-    assert f"CHECK (split IN {tuple(config.SPLITS)!r})".replace('"', "'") in PLANNING.replace('"', "'")
+    assert f"CHECK (split IN {tuple(config.config.splits)!r})".replace('"', "'") in PLANNING.replace('"', "'")
 
 
 def test_immutable_cache_control():

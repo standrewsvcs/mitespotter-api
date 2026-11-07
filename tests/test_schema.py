@@ -175,11 +175,14 @@ def test_mailing_survives_user_deletion(session):
 
 # MARK: Images
 
-def test_phash_holds_the_full_uint64_range(session):
+@pytest.mark.parametrize("phash", [0, UINT64_MAX], ids=["lower", "upper"])
+def test_phash_reads_back_both_uint64_bounds(session, phash):
     uploader = _user(session)
-    image = _image(session, uploader, phash=UINT64_MAX)
+    image = _image(session, uploader, phash=phash)
     session.expire_all()
-    assert session.get(Image, image.id).phash == UINT64_MAX
+    stored = session.get(Image, image.id).phash
+    assert stored == phash
+    assert type(stored) is int
 
 
 @pytest.mark.parametrize("phash", [-1, UINT64_MAX + 1])

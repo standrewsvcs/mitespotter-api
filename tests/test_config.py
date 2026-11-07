@@ -239,7 +239,7 @@ def test_categories_match_the_database_seed(load_config):
 
 def test_splits_match_the_split_check_constraint(load_config):
     config = load_config()
-    assert config.SPLITS == ("train", "val", "test")
+    assert config.config.splits == ("train", "val", "test")
 
 
 def test_split_thresholds_are_ordered_percentages(load_config):
@@ -249,7 +249,7 @@ def test_split_thresholds_are_ordered_percentages(load_config):
 
 def test_coco_filenames_cover_every_split(load_config):
     config = load_config()
-    assert set(config.COCO_FILENAMES) == set(config.SPLITS)
+    assert set(config.COCO_FILENAMES) == set(config.config.splits)
     assert all(name.endswith(".json") for name in config.COCO_FILENAMES.values())
 
 
@@ -279,9 +279,9 @@ R2_ENV = {
 
 def test_storage_defaults_to_local(load_config):
     config = load_config()
-    assert config.settings.storage == "local"
-    assert config.settings.public_data_url == "/data"
-    assert config.settings.r2_bucket is None
+    assert config.config.storage == "local"
+    assert config.config.public_data_url == "/data"
+    assert config.config.r2_bucket is None
 
 
 def test_unknown_storage_is_rejected(load_config):
@@ -289,11 +289,11 @@ def test_unknown_storage_is_rejected(load_config):
         load_config(MITESPOTTER_STORAGE="s3")
 
 
-def test_r2_storage_reads_its_settings(load_config):
-    settings = load_config(**R2_ENV).settings
-    assert settings.storage == "r2"
-    assert settings.r2_bucket == "mitespotter"
-    assert settings.r2_endpoint_url == "https://acc123.r2.cloudflarestorage.com"
+def test_r2_storage_reads_its_config(load_config):
+    config = load_config(**R2_ENV).config
+    assert config.storage == "r2"
+    assert config.r2_bucket == "mitespotter"
+    assert config.r2_endpoint_url == "https://acc123.r2.cloudflarestorage.com"
 
 
 @pytest.mark.parametrize("missing", [name for name in R2_ENV if name != "MITESPOTTER_STORAGE"])
@@ -303,36 +303,36 @@ def test_r2_storage_requires_every_r2_setting(load_config, missing):
 
 
 def test_public_data_url_trailing_slash_is_stripped(load_config):
-    assert load_config(MITESPOTTER_PUBLIC_DATA_URL="https://data.mitespotter.org/").settings.public_data_url == (
+    assert load_config(MITESPOTTER_PUBLIC_DATA_URL="https://data.mitespotter.org/").config.public_data_url == (
         "https://data.mitespotter.org"
     )
 
 
-# MARK: Settings
+# MARK: Config
 
-def test_settings_from_an_explicit_mapping_ignores_os_environ(load_config, tmp_path):
+def test_config_from_an_explicit_mapping_ignores_os_environ(load_config, tmp_path):
     config = load_config(MITESPOTTER_PORT="9000")
-    settings = config.Settings.from_env({
+    config = config.Config.from_env({
         "MITESPOTTER_DATABASE_URL": "postgresql+psycopg://x/y",
         "MITESPOTTER_ENV": "prod",
         "MITESPOTTER_SECRET_KEY": "s3cret",
         "MITESPOTTER_DATA_DIR": str(tmp_path),
     })
-    assert settings.port == 6776
-    assert settings.is_production and not settings.is_test
-    assert settings.data_dir == tmp_path.resolve()
+    assert config.port == 6776
+    assert config.is_production and not config.is_test
+    assert config.data_dir == tmp_path.resolve()
 
 
-def test_settings_are_frozen(load_config):
+def test_config_are_frozen(load_config):
     import dataclasses
-    settings = load_config().settings
+    config = load_config().config
     with pytest.raises(dataclasses.FrozenInstanceError):
-        settings.port = 1
+        config.port = 1
 
 
-def test_module_constants_mirror_settings(load_config):
+def test_module_constants_mirror_config(load_config):
     config = load_config(MITESPOTTER_ENV="test", MITESPOTTER_PORT="9001")
-    s = config.settings
+    s = config.config
     assert (config.ENVIRONMENT, config.PORT, config.DATABASE_URL, config.DATA_DIR) == (
         s.environment, s.port, s.database_url, s.data_dir
     )
