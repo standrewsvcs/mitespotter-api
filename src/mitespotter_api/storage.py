@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol
 
 
-from .config import IMMUTABLE_CACHE_CONTROL, Config
+from .config import Config
 
 
 if TYPE_CHECKING:
@@ -44,8 +44,9 @@ class Storage(Protocol):
         key: str,
         data: bytes,
         content_type: str,
-        cache_control: str = IMMUTABLE_CACHE_CONTROL,
-    ) -> None: ...
+        cache_control: str | None = None,
+    ) -> None:
+        """Store data under key; cache_control defaults to config.immutable_cache_control"""
 
     def get(self, key: str) -> bytes: ...
 
@@ -82,7 +83,7 @@ class LocalStorage(_PublicUrlMixin):
         key: str,
         data: bytes,
         content_type: str,
-        cache_control: str = IMMUTABLE_CACHE_CONTROL,
+        cache_control: str | None = None,
     ) -> None:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,10 +116,17 @@ class LocalStorage(_PublicUrlMixin):
 class R2Storage(_PublicUrlMixin):
     """Stores files in an R2 bucket through its S3-compatible API"""
 
-    def __init__(self, client: Any, bucket: str, public_data_url: str = "/data") -> None:
+    def __init__(
+        self,
+        client: Any,
+        bucket: str,
+        public_data_url: str = "/data",
+        default_cache_control: str = Config.immutable_cache_control,
+    ) -> None:
         self.client = client
         self.bucket = bucket
         self.public_data_url = public_data_url.rstrip("/")
+        self.default_cache_control = default_cache_control
 
     @classmethod
     def from_config(cls, config: Config) -> R2Storage:
@@ -131,21 +139,26 @@ class R2Storage(_PublicUrlMixin):
             aws_secret_access_key=config.r2_secret_access_key,
             region_name="auto",
         )
-        return cls(client, bucket=config.r2_bucket or "", public_data_url=config.public_data_url)
+        return cls(
+            client,
+            bucket=config.r2_bucket or "",
+            public_data_url=config.public_data_url,
+            default_cache_control=config.immutable_cache_control,
+        )
 
     def put(
         self,
         key: str,
         data: bytes,
         content_type: str,
-        cache_control: str = IMMUTABLE_CACHE_CONTROL,
+        cache_control: str | None = None,
     ) -> None:
         self.client.put_object(
             Bucket=self.bucket,
             Key=validate_key(key),
             Body=data,
             ContentType=content_type,
-            CacheControl=cache_control,
+            CacheControl=cache_control or self.default_cache_control,
         )
 
     def get(self, key: str) -> bytes:

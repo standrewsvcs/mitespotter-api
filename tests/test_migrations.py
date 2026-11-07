@@ -29,10 +29,10 @@ def _commands(url: str):
 
 
 def test_head_seeds_the_configured_categories(database_url):
-    from mitespotter_api.config import CATEGORIES
+    from mitespotter_api.config import config
 
     rows = _query(database_url, "SELECT id, name, supercategory FROM categories ORDER BY id")
-    assert rows == [(c.id, c.name, c.supercategory) for c in CATEGORIES]
+    assert rows == [(c.id, c.name, c.supercategory) for c in config.categories]
 
 
 def test_head_creates_citext(database_url):

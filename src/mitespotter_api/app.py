@@ -19,19 +19,16 @@ from .db import make_alchemy_config
 from .routes import auth, health
 
 
-API_PREFIX = "/api"
-
-
 def create_app(config: Config | None = None) -> Litestar:
     config = config or config_module.config
-    api = Router(path=API_PREFIX, route_handlers=[health.router, auth.router])
+    api = Router(path=config.api_prefix, route_handlers=[health.router, auth.router])
     return Litestar(
         route_handlers=[api],
         plugins=[SQLAlchemyPlugin(config=make_alchemy_config(config))],
         openapi_config=OpenAPIConfig(
-            title="Mitespotter API",
-            version="0.1.0",
-            path=f"{API_PREFIX}/schema",
+            title=config.api_title,
+            version=config.api_version,
+            path=f"{config.api_prefix}/schema",
         ),
         debug=config.debug,
     )

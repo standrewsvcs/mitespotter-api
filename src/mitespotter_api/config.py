@@ -2,6 +2,10 @@
 src/mitespotter_api/config.py
 Environment, server, database, storage and dataset configuration
 
+Everything read-only lives on the frozen Config: values read from the
+environment, fixed domain values, and paths derived from both. Use the
+module-level `config` instance, or build one with Config.from_env(mapping).
+
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
 """
@@ -12,6 +16,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
+from typing import ClassVar
 
 
 # MARK: Env helpers
@@ -53,16 +59,32 @@ def _env_choice(environ: Mapping[str, str], name: str, choices: tuple[str, ...],
     return value
 
 
+# MARK: Value types
+
+@dataclass(frozen=True)
+class Category:
+    id: int
+    name: str
+    supercategory: str
+
+
+@dataclass(frozen=True)
+class License:
+    id: int
+    name: str
+    url: str
+
+
 # MARK: Config
-
-ENVIRONMENTS = ("dev", "test", "prod")
-STORAGE_BACKENDS = ("local", "r2")
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
 
 @dataclass(frozen=True)
 class Config:
     """Application configuration: values read from the environment, plus fixed domain values"""
+
+    ENVIRONMENTS: ClassVar[tuple[str, ...]] = ("dev", "test", "prod")
+    STORAGE_BACKENDS: ClassVar[tuple[str, ...]] = ("local", "r2")
+
+    # Read from the environment
     environment: str
     debug: bool
     host: str
@@ -80,7 +102,17 @@ class Config:
     r2_secret_access_key: str | None
     public_data_url: str
 
-    # Fixed domain values; the database CHECK constraints are built from these
+    # API
+    api_prefix: str = "/api"
+    api_title: str = "Mitespotter API"
+    api_version: str = "0.1.0"
+
+    # Database
+    session_dependency_key: str = "db_session"
+    migrations_dir: Path = Path(__file__).resolve().parent / "migrations"
+    alembic_version_table: str = "alembic_version"
+
+    # Domain values; the database CHECK constraints are built from these
     splits: tuple[str, ...] = ("train", "val", "test")
     image_event_types: tuple[str, ...] = ("upload", "complete", "verify", "reject", "delete")
     annotation_event_types: tuple[str, ...] = ("create", "update", "confirm", "delete")
@@ -92,6 +124,38 @@ class Config:
         "incorrect_annotations",  # verified images only
         "other",
     )
+    categories: tuple[Category, ...] = (
+        Category(id=1, name="debris", supercategory="non-mite"),
+        Category(id=2, name="varroa destructor", supercategory="mite"),
+    )
+
+    # Dataset split: buckets [0, train) train, [train, val) val, the rest test
+    split_train_below: int = 70
+    split_val_below: int = 85
+
+    # Dataset export
+    coco_license: License = License(id=1, name="CC BY 4.0", url="https://creativecommons.org/licenses/by/4.0/")
+    coco_contributor: str = "St Andrews Volunteer Code Society"
+    coco_description: str = "Mitespotter annotated dataset of bee parasitic mites on sticky boards"
+    coco_info_year: int = 2026
+    coco_filenames: Mapping[str, str] = MappingProxyType({
+        "train": "instances_train.json",
+        "val": "instances_val.json",
+        "test": "instances_test.json",
+    })
+    manifest_filename: str = "MANIFEST.json"
+    version_dir_prefix: str = "mitespotter_v"
+    snapshot_dir_prefix: str = "mitespotter_"
+    snapshot_disclaimer: str = (
+        "The following is an internal-only snapshot of the mitespotter.org dataset. "
+        "It should not be cited or distributed. For the official versions, see "
+        "https://mitespotter.org/download"
+    )
+
+    # File serving
+    immutable_cache_control: str = "public, max-age=31536000, immutable"
+
+    # MARK: Derived
 
     @property
     def is_production(self) -> bool:
@@ -105,11 +169,60 @@ class Config:
     def r2_endpoint_url(self) -> str:
         return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
 
+    @property
+    def alembic_ini(self) -> Path:
+        return self.migrations_dir / "alembic.ini"
+
+    @property
+    def category_by_id(self) -> Mapping[int, Category]:
+        return MappingProxyType({category.id: category for category in self.categories})
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.data_dir / "backups"
+
+    @property
+    def datasets_dir(self) -> Path:
+        return self.data_dir / "datasets"
+
+    @property
+    def images_dir(self) -> Path:
+        return self.data_dir / "images"
+
+    @property
+    def originals_dir(self) -> Path:
+        return self.data_dir / "originals"
+
+    @property
+    def pyramids_dir(self) -> Path:
+        return self.data_dir / "pyramids"
+
+    @property
+    def thumbnails_dir(self) -> Path:
+        return self.data_dir / "thumbnails"
+
+    @property
+    def data_dirs(self) -> tuple[Path, ...]:
+        return (
+            self.backups_dir,
+            self.datasets_dir,
+            self.images_dir,
+            self.originals_dir,
+            self.pyramids_dir,
+            self.thumbnails_dir,
+        )
+
+    def create_data_dirs(self) -> None:
+        for directory in self.data_dirs:
+            directory.mkdir(parents=True, exist_ok=True)
+
+    # MARK: Loading
+
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Config:
         env = os.environ if environ is None else environ
 
-        environment = _env_choice(env, "MITESPOTTER_ENV", ENVIRONMENTS, "dev")
+        environment = _env_choice(env, "MITESPOTTER_ENV", cls.ENVIRONMENTS, "dev")
         is_production = environment == "prod"
         debug = _env_bool(env, "MITESPOTTER_DEBUG", not is_production)
 
@@ -119,7 +232,7 @@ class Config:
                 raise RuntimeError("MITESPOTTER_SECRET_KEY must be set when MITESPOTTER_ENV=prod")
             secret_key = "dev-secret-key"
 
-        storage = _env_choice(env, "MITESPOTTER_STORAGE", STORAGE_BACKENDS, "local")
+        storage = _env_choice(env, "MITESPOTTER_STORAGE", cls.STORAGE_BACKENDS, "local")
         r2 = {
             name: env.get(f"MITESPOTTER_{name.upper()}", "").strip() or None
             for name in ("r2_account_id", "r2_bucket", "r2_access_key_id", "r2_secret_access_key")
@@ -129,7 +242,8 @@ class Config:
             if missing:
                 raise ValueError(f"{', '.join(missing)} must be set when MITESPOTTER_STORAGE=r2")
 
-        data_dir = Path(_env_str(env, "MITESPOTTER_DATA_DIR", str(_REPO_ROOT / "data")))
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        data_dir = Path(_env_str(env, "MITESPOTTER_DATA_DIR", str(repo_root / "data")))
 
         return cls(
             environment=environment,
@@ -151,106 +265,5 @@ class Config:
 config = Config.from_env()
 
 
-# MARK: Module constants (derived from config)
-
-ENVIRONMENT = config.environment
-IS_PRODUCTION = config.is_production
-IS_TEST = config.is_test
-DEBUG = config.debug
-
-HOST = config.host
-PORT = config.port
-
-SECRET_KEY = config.secret_key
-
-DATABASE_URL = config.database_url
-SQL_ECHO = config.sql_echo
-
-MAX_UPLOAD_BYTES = config.max_upload_bytes
-JPEG_QUALITY = config.jpeg_quality
-
-
-# MARK: Paths
-
-DATA_DIR = config.data_dir
-
-BACKUPS_DIR    = DATA_DIR / "backups"
-DATASETS_DIR   = DATA_DIR / "datasets"
-IMAGES_DIR     = DATA_DIR / "images"
-ORIGINALS_DIR  = DATA_DIR / "originals"
-PYRAMIDS_DIR   = DATA_DIR / "pyramids"
-THUMBNAILS_DIR = DATA_DIR / "thumbnails"
-
-DATA_DIRS = (
-    BACKUPS_DIR,
-    DATASETS_DIR,
-    IMAGES_DIR,
-    ORIGINALS_DIR,
-    PYRAMIDS_DIR,
-    THUMBNAILS_DIR
-)
-
-
-def create_data_dirs() -> None:
-    for directory in DATA_DIRS:
-        directory.mkdir(parents=True, exist_ok=True)
-
-
-# MARK: Dataset
-
-SPLIT_TRAIN_BELOW = 70  # First 70% of the dataset is used for training
-SPLIT_VAL_BELOW = 85    # Next 15% of the dataset is used for validation
-                        # Remaining 15% of the dataset is used for testing
-
-
-@dataclass
-class Category:
-    id: int
-    name: str
-    supercategory: str
-
-
-CATEGORY_DEBRIS = Category(id=1, name="debris", supercategory="non-mite")
-CATEGORY_VARROA = Category(id=2, name="varroa destructor", supercategory="mite")
-CATEGORIES = (CATEGORY_DEBRIS, CATEGORY_VARROA)
-CATEGORY_BY_ID = {category.id: category for category in CATEGORIES}
-
-COCO_LICENSE = {
-    "id": 1,
-    "name": "CC BY 4.0",
-    "url": "https://creativecommons.org/licenses/by/4.0/"
-}
-
-COCO_CONTRIBUTOR = "St Andrews Volunteer Code Society"
-COCO_DESCRIPTION = "Mitespotter annotated dataset of bee parasitic mites on sticky boards"
-COCO_INFO_YEAR = 2026
-
-COCO_FILENAMES = {
-    "train": "instances_train.json",
-    "val": "instances_val.json",
-    "test": "instances_test.json"
-}
-
-MANIFEST_FILENAME = "MANIFEST.json"
-VERSION_DIR_PREFIX = "mitespotter_v"
-SNAPSHOT_DIR_PREFIX = "mitespotter_"
-SNAPSHOT_DISCLAIMER = (
-    "The following is an internal-only snapshot of the mitespotter.org dataset. "
-    "It should not be cited or distributed. For the official versions, see "
-    "https://mitespotter.org/download"
-)
-
-
-# MARK: File serving
-
-IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
-
-
-# MARK: Email
-
-# TODO: /verify-email, /reset-password, mailing list, etc.
-
-
-# MARK: Jobs
-
-# TODO: Unused until jobs/nightly.py & jobs/weekly.py are implemented
+# TODO (email): Resend settings, verification and recovery token lifetimes
+# TODO (jobs): unused until jobs/nightly.py & jobs/weekly.py are implemented

@@ -19,19 +19,19 @@ PLANNING = (Path(__file__).resolve().parent.parent / "planning.md").read_text(en
 
 
 def test_snapshot_disclaimer():
-    assert config.SNAPSHOT_DISCLAIMER in PLANNING
+    assert config.config.snapshot_disclaimer in PLANNING
 
 
 def test_coco_contributor_and_description():
-    assert f'"contributor": "{config.COCO_CONTRIBUTOR}"' in PLANNING
-    assert f'"description": "{config.COCO_DESCRIPTION}"' in PLANNING
+    assert f'"contributor": "{config.config.coco_contributor}"' in PLANNING
+    assert f'"description": "{config.config.coco_description}"' in PLANNING
 
 
 def test_manifest_filename():
-    assert f"`{config.MANIFEST_FILENAME}`" in PLANNING
+    assert f"`{config.config.manifest_filename}`" in PLANNING
 
 
-@pytest.mark.parametrize("category", config.CATEGORIES, ids=lambda c: c.name)
+@pytest.mark.parametrize("category", config.config.categories, ids=lambda c: c.name)
 def test_categories_match_the_seed(category):
     assert f"({category.id}, '{category.name}', '{category.supercategory}')" in PLANNING
 
@@ -42,7 +42,7 @@ def test_report_reasons_match_the_check_constraint():
 
 
 def test_split_thresholds():
-    assert f"X={config.SPLIT_TRAIN_BELOW}, Y={config.SPLIT_VAL_BELOW}" in PLANNING
+    assert f"X={config.config.split_train_below}, Y={config.config.split_val_below}" in PLANNING
 
 
 def test_splits_match_the_check_constraint():
@@ -50,4 +50,4 @@ def test_splits_match_the_check_constraint():
 
 
 def test_immutable_cache_control():
-    assert f"`Cache-Control: {config.IMMUTABLE_CACHE_CONTROL}`" in PLANNING
+    assert f"`Cache-Control: {config.config.immutable_cache_control}`" in PLANNING

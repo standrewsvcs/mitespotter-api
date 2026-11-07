@@ -32,10 +32,13 @@ def test_debug_follows_config(make_config):
 
 
 def test_every_route_is_under_api(make_config):
-    from mitespotter_api.app import API_PREFIX, create_app
-    paths = {route.path for route in create_app(make_config()).routes}
+    from mitespotter_api.app import create_app
+    config = make_config()
+    prefix = config.api_prefix
+    paths = {route.path for route in create_app(config).routes}
     assert paths
-    assert all(path == API_PREFIX or path.startswith(f"{API_PREFIX}/") for path in paths)
+    assert prefix == "/api"
+    assert all(path == prefix or path.startswith(f"{prefix}/") for path in paths)
 
 
 def test_health_is_served_under_api(client):

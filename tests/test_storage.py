@@ -13,7 +13,7 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from mitespotter_api.config import IMMUTABLE_CACHE_CONTROL
+from mitespotter_api.config import config
 from mitespotter_api.storage import (
     LocalStorage,
     R2Storage,
@@ -135,7 +135,7 @@ def test_r2_sets_content_type_and_immutable_cache_control(r2):
     r2.put("images/abc.jpg", b"x", "image/jpeg")
     head = r2.client.head_object(Bucket=BUCKET, Key="images/abc.jpg")
     assert head["ContentType"] == "image/jpeg"
-    assert head["CacheControl"] == IMMUTABLE_CACHE_CONTROL
+    assert head["CacheControl"] == config.immutable_cache_control
 
 
 def test_r2_cache_control_can_be_overridden(r2):

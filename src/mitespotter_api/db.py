@@ -8,7 +8,6 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 
-from pathlib import Path
 from typing import Any, Literal
 
 
@@ -17,19 +16,11 @@ from advanced_alchemy.extensions.litestar import (
     EngineConfig,
     SQLAlchemyAsyncConfig,
 )
-
-
 from alembic.autogenerate import render
 from sqlalchemy.types import TypeDecorator
 
 
 from .config import Config
-
-
-MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-ALEMBIC_INI = MIGRATIONS_DIR / "alembic.ini"
-VERSION_TABLE = "alembic_version"
-SESSION_DEPENDENCY_KEY = "db_session"
 
 
 def make_alchemy_config(config: Config) -> SQLAlchemyAsyncConfig:
@@ -47,12 +38,12 @@ def make_alchemy_config(config: Config) -> SQLAlchemyAsyncConfig:
             connect_args={"options": "-c timezone=UTC"},
         ),
         before_send_handler="autocommit",
-        session_dependency_key=SESSION_DEPENDENCY_KEY,
+        session_dependency_key=config.session_dependency_key,
         create_all=False,
         alembic_config=AlembicAsyncConfig(
-            script_location=str(MIGRATIONS_DIR),
-            script_config=str(ALEMBIC_INI),
-            version_table_name=VERSION_TABLE,
+            script_location=str(config.migrations_dir),
+            script_config=str(config.alembic_ini),
+            version_table_name=config.alembic_version_table,
             render_as_batch=False,  # batch mode is for SQLite; Postgres alters in place
         ),
     )
