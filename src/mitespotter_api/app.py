@@ -5,25 +5,35 @@ Litestar app factory
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
 """
-from litestar import Litestar
-from litestar.di import Provide
-from sqlalchemy.ext.asyncio import AsyncSession
+from __future__ import annotations
 
 
-from .config import DEBUG
-from .db import db_lifespan, db_session
-from .routes import health, auth
+from advanced_alchemy.extensions.litestar import SQLAlchemyPlugin
+from litestar import Litestar, Router
+from litestar.openapi import OpenAPIConfig
 
 
-def create_app(debug=DEBUG) -> Litestar:
+from . import config
+from .config import Settings
+from .db import make_alchemy_config
+from .routes import auth, health
+
+
+API_PREFIX = "/api"
+
+
+def create_app(settings: Settings | None = None) -> Litestar:
+    settings = settings or config.settings
+    api = Router(path=API_PREFIX, route_handlers=[health.router, auth.router])
     return Litestar(
-        lifespan=[db_lifespan],
-        route_handlers=[
-            health.router,
-            auth.router
-        ],
-        dependencies={"session": (db_session)},
-        debug=debug,
+        route_handlers=[api],
+        plugins=[SQLAlchemyPlugin(config=make_alchemy_config(settings))],
+        openapi_config=OpenAPIConfig(
+            title="Mitespotter API",
+            version="0.1.0",
+            path=f"{API_PREFIX}/schema",
+        ),
+        debug=settings.debug,
     )
 
 

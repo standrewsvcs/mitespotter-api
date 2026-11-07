@@ -1,6 +1,6 @@
 """
-src/mitespotter_api/routes/db.py
-Database session and initialisation
+src/mitespotter_api/db.py
+advanced-alchemy database and Alembic configuration
 
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
@@ -8,68 +8,40 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 
-import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
 
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase
-
-
-from .config import DATABASE_URL, SQL_ECHO
-
-
-# create_async_engine parses the URL and builds a pool without opening a connection;
-# this db.py can be safely imported without touching the database
-engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=SQL_ECHO, pool_pre_ping=True)
-
-
-# expire_on_commit=False is required for async sessions
-async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
+from advanced_alchemy.extensions.litestar import (
+    AlembicAsyncConfig,
+    EngineConfig,
+    SQLAlchemyAsyncConfig,
 )
 
 
-async def db_session() -> AsyncIterator[AsyncSession]:
-    """PLitestar dependency yielding an async database session"""
-    async with async_session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+from .config import Settings
 
 
-async def init_db() -> None:
-    """Initialise the database extensions and create tables if they don't exist"""
-    #from . import models
-
-    async with engine.begin() as conn:
-        if SQL_ECHO:
-            print(f"Connection successful to database {DATABASE_URL}")
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS CITEXT;"))
-        #await conn.run_sync(models.Base.metadata.create_all)
+MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+ALEMBIC_INI = MIGRATIONS_DIR / "alembic.ini"
+VERSION_TABLE = "alembic_version"
+SESSION_DEPENDENCY_KEY = "db_session"
 
 
-async def close_db() -> None:
-    """Close the database engine"""
-    await engine.dispose()
+def make_alchemy_config(settings: Settings) -> SQLAlchemyAsyncConfig:
+    """Build the advanced-alchemy config: engine, autocommitting session dependency and Alembic.
 
-
-@asynccontextmanager
-async def db_lifespan(app: Any) -> AsyncIterator[None]:
-    """`Litestar(..., lifespan=[db_lifespan])` context manager to initialise and close the database"""
-    await init_db()
-    try:
-        yield
-    finally:
-        await close_db()
+    The schema is only ever changed through Alembic, so create_all is off.
+    Building the config parses the URL and creates no connection.
+    """
+    return SQLAlchemyAsyncConfig(
+        connection_string=settings.database_url,
+        engine_config=EngineConfig(echo=settings.sql_echo, pool_pre_ping=True),
+        before_send_handler="autocommit",
+        session_dependency_key=SESSION_DEPENDENCY_KEY,
+        create_all=False,
+        alembic_config=AlembicAsyncConfig(
+            script_location=str(MIGRATIONS_DIR),
+            script_config=str(ALEMBIC_INI),
+            version_table_name=VERSION_TABLE,
+        ),
+    )
