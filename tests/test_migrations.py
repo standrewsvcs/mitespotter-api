@@ -67,7 +67,7 @@ def test_downgrade_to_base_and_back(database_factory):
 
     commands.upgrade("head")
     commands.downgrade("base")
-    for table in ("categories", "users", "images", "annotations", "reports"):
+    for table in ("categories", "users", "images", "annotations", "reports", "user_sessions", "account_tokens"):
         assert _query(url, f"SELECT to_regclass('{table}')") == [(None,)]
     assert _query(url, "SELECT 1 FROM pg_extension WHERE extname = 'citext'") == []
 

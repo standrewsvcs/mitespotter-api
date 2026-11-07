@@ -22,6 +22,7 @@ from mitespotter_api import config, models
 TABLES = {
     "users", "images", "categories", "mailing",
     "annotations", "image_events", "annotation_events", "reports",
+    "user_sessions", "account_tokens",
 }
 
 
@@ -66,13 +67,15 @@ def _checks(model) -> dict[str, str]:
 
 
 def test_check_constraints_keep_their_planned_names():
-    names = {name for model in (models.Image, models.Annotation, models.ImageEvent, models.AnnotationEvent, models.Report)
+    names = {name for model in (models.Image, models.Annotation, models.ImageEvent, models.AnnotationEvent, models.Report,
+                                models.AccountToken)
              for name in _checks(model)}
     assert names == {
         "ck_image_split", "ck_image_phash", "ck_annotation_bbox",
         "ck_image_events_type", "ck_annotation_events_type", "ck_annotation_events_bbox",
         "ck_annotation_events_confidence",
         "ck_report_reason", "ck_report_other_notes", "ck_report_resolved",
+        "ck_account_tokens_purpose",
     }
 
 
@@ -81,6 +84,7 @@ def test_check_constraints_keep_their_planned_names():
     (models.ImageEvent, "ck_image_events_type", config.config.image_event_types),
     (models.AnnotationEvent, "ck_annotation_events_type", config.config.annotation_event_types),
     (models.Report, "ck_report_reason", config.config.report_reasons),
+    (models.AccountToken, "ck_account_tokens_purpose", config.config.account_token_purposes),
 ])
 def test_value_checks_are_built_from_config(model, name, values):
     assert _checks(model)[name].endswith(f"IN ({', '.join(repr(v) for v in values)})")
@@ -105,6 +109,8 @@ def test_area_is_a_stored_generated_column():
     (models.AnnotationEvent, "category_id", "categories.id", "RESTRICT"),
     (models.Report, "image_id", "images.id", "RESTRICT"),
     (models.Report, "resolver_id", "users.id", "RESTRICT"),
+    (models.UserSession, "user_id", "users.id", "CASCADE"),
+    (models.AccountToken, "user_id", "users.id", "CASCADE"),
 ])
 def test_foreign_keys(model, column, target, ondelete):
     (fk,) = model.__table__.c[column].foreign_keys

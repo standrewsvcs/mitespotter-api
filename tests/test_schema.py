@@ -12,7 +12,7 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import psycopg
@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from mitespotter_api.models import (
     UINT64_MAX,
+    AccountToken,
     Annotation,
     AnnotationEvent,
     Image,
@@ -31,6 +32,7 @@ from mitespotter_api.models import (
     Mailing,
     Report,
     User,
+    UserSession,
 )
 
 
@@ -355,3 +357,46 @@ def test_reported_images_cannot_be_hard_deleted(session):
     session.flush()
     with pytest.raises(IntegrityError, match="fk_report_image"), session.begin_nested():
         session.execute(text("DELETE FROM images WHERE id = :id"), {"id": image.id})
+
+
+# MARK: Sessions and account tokens
+
+def test_email_starts_unverified(session):
+    user = _user(session, email="laurie@example.org")
+    session.refresh(user)
+    assert user.email_verified_at is None
+
+
+def test_session_defaults_and_unique_hash(session):
+    user = _user(session)
+    user_session = UserSession(user_id=user.id, token_hash="h" * 64, expires_at=NOW + timedelta(days=30))
+    session.add(user_session)
+    session.flush()
+    session.refresh(user_session)
+    assert user_session.created_at == user_session.last_seen_at
+    _rejected(session, UserSession(user_id=user.id, token_hash="h" * 64, expires_at=NOW),
+              constraint="uq_user_sessions_token_hash")
+
+
+def test_account_token_purpose_is_checked(session):
+    user = _user(session)
+    session.add(AccountToken(user_id=user.id, purpose="recover", token_hash="r" * 64, expires_at=NOW))
+    session.flush()
+    _rejected(session, AccountToken(user_id=user.id, purpose="login", token_hash="x" * 64, expires_at=NOW),
+              constraint="ck_account_tokens_purpose")
+    _rejected(session, AccountToken(user_id=user.id, purpose="verify", token_hash="r" * 64, expires_at=NOW),
+              constraint="uq_account_tokens_token_hash")
+
+
+def test_deleting_a_user_removes_their_sessions_and_tokens(session):
+    user = _user(session)
+    session.add_all([
+        UserSession(user_id=user.id, token_hash="s" * 64, expires_at=NOW),
+        AccountToken(user_id=user.id, purpose="verify", token_hash="v" * 64, expires_at=NOW),
+    ])
+    session.flush()
+    session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user.id})
+    counts = session.execute(text(
+        "SELECT (SELECT count(*) FROM user_sessions), (SELECT count(*) FROM account_tokens)"
+    )).one()
+    assert tuple(counts) == (0, 0)

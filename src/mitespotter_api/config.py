@@ -116,6 +116,7 @@ class Config:
     splits: tuple[str, ...] = ("train", "val", "test")
     image_event_types: tuple[str, ...] = ("upload", "complete", "verify", "reject", "delete")
     annotation_event_types: tuple[str, ...] = ("create", "update", "confirm", "delete")
+    account_token_purposes: tuple[str, ...] = ("verify", "recover")
     report_reasons: tuple[str, ...] = (
         "not_a_board",
         "duplicate",

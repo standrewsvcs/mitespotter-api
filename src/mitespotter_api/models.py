@@ -99,6 +99,7 @@ class User(DefaultBase):
     username: Mapped[str] = mapped_column(CITEXT, unique=True)  # auto-generated from id, distinguishes anonymous users
     email: Mapped[str | None] = mapped_column(CITEXT, unique=True)
     hashed_password: Mapped[str | None] = mapped_column(Text)
+    email_verified_at: Mapped[datetime | None] = _timestamptz(nullable=True)
     created_at: Mapped[datetime] = _timestamptz(now=True)
     anonymous: Mapped[bool] = mapped_column(Boolean, server_default=false())
     is_ai_model: Mapped[bool] = mapped_column(Boolean, server_default=false())
@@ -141,6 +142,34 @@ class Mailing(DefaultBase):
 
 
 # MARK: Dependent tables
+
+class UserSession(DefaultBase):
+    __tablename__ = "user_sessions"
+    __table_args__ = (Index("idx_user_sessions_user_id", "user_id"),)
+
+    id: Mapped[int] = _id()
+    user_id: Mapped[int] = _fk("users.id", "CASCADE", "fk_session_user")
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)  # sha256 of the cookie's session id
+    created_at: Mapped[datetime] = _timestamptz(now=True)
+    last_seen_at: Mapped[datetime] = _timestamptz(now=True)
+    expires_at: Mapped[datetime] = _timestamptz()
+
+
+class AccountToken(DefaultBase):
+    __tablename__ = "account_tokens"
+    __table_args__ = (
+        CheckConstraint(_in("purpose", config.account_token_purposes), name=conv("ck_account_tokens_purpose")),
+        Index("idx_account_tokens_open", "user_id", "purpose", postgresql_where=text("used_at IS NULL")),
+    )
+
+    id: Mapped[int] = _id()
+    user_id: Mapped[int] = _fk("users.id", "CASCADE", "fk_account_token_user")
+    purpose: Mapped[str] = mapped_column(Text)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True)  # sha256 of the emailed token
+    created_at: Mapped[datetime] = _timestamptz(now=True)
+    expires_at: Mapped[datetime] = _timestamptz()
+    used_at: Mapped[datetime | None] = _timestamptz(nullable=True)
+
 
 class Annotation(DefaultBase):
     __tablename__ = "annotations"
