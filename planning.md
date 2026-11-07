@@ -186,7 +186,10 @@ CREATE TABLE IF NOT EXISTS images (
         ON DELETE RESTRICT,
 
     CONSTRAINT ck_image_split
-    	CHECK (split IN ('train', 'val', 'test'))
+    	CHECK (split IN ('train', 'val', 'test')),
+
+    CONSTRAINT ck_image_phash
+        CHECK (phash >= 0 AND phash <= 18446744073709551615) -- uint64 range
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -221,7 +224,7 @@ CREATE TABLE IF NOT EXISTS annotations (
     bbox_y REAL NOT NULL,
     bbox_width REAL NOT NULL,
     bbox_height REAL NOT NULL,
-    area REAL GENERATED ALWAYS AS (bbox_width * bbox_height) STORED,
+    area REAL NOT NULL GENERATED ALWAYS AS (bbox_width * bbox_height) STORED,
     is_crowd BOOLEAN NOT NULL DEFAULT FALSE, -- exported as COCO's `iscrowd`
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -278,7 +281,7 @@ CREATE TABLE IF NOT EXISTS annotation_events (
     bbox_y REAL NOT NULL,
     bbox_width REAL NOT NULL,
     bbox_height REAL NOT NULL,
-    area REAL GENERATED ALWAYS AS (bbox_width * bbox_height) STORED,
+    area REAL NOT NULL GENERATED ALWAYS AS (bbox_width * bbox_height) STORED,
     confidence REAL NULL,
     time TIMESTAMPTZ NOT NULL,
 
