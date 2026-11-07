@@ -1,0 +1,14 @@
+# deploy/cloudflared.example.yml
+# Cloudflare Tunnel for the VPS; copy to /etc/cloudflared/config.yml.
+# Create the tunnel with `cloudflared tunnel create mitespotter-api`; never commit the credentials file.
+# See planning.md "Deployment".
+
+tunnel: mitespotter-api
+credentials-file: /etc/cloudflared/mitespotter-api.json
+
+ingress:
+  # Only the API is served from the VPS; /data/* is R2 and everything else is the frontend.
+  - hostname: mitespotter.org
+    path: ^/api/.*
+    service: http://127.0.0.1:6776
+  - service: http_status:404
