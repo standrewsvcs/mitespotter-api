@@ -67,7 +67,8 @@ This is the official documentation format. Here is an example application for ou
 Used for both versions and snapshots; only the root directory name differs.
 A version is named `mitespotter_v1.0.0/`, a snapshot `mitespotter_2026-08-09/`,
 and a snapshot additionally carries `MANIFEST.json` (see
-[Version vs. Snapshot](#version-vs-snapshot)).
+[Version vs. Snapshot](#version-vs-snapshot)). Image files are named by their
+full sha256 (abbreviated below), which is also the image's public identifier.
 
 ```shell
 mitespotter_v1.0.0/
@@ -76,14 +77,15 @@ mitespotter_v1.0.0/
 │   ├── instances_test.json
 │   └── instances_val.json
 ├── train/
-│   ├── 20260514_080911.jpg
+│   ├── 0a789958….jpg
 │   └── ...
 ├── test/
-│   ├── 20260514_091234.jpg
+│   ├── 3f1c22e0….jpg
 │   └── ...
 ├── val/
-│   ├── 20260513_122922.jpg
+│   ├── 9be4a1d7….jpg
 │   └── ...
+├── MANIFEST.json  # snapshots only
 └── README.md  # License, citation info, etc.
 ```
 
@@ -94,8 +96,8 @@ mitespotter_v1.0.0/
     "info": {
         "year": 2026,
         "version": "1.0.0",
-        "description": "Mitespotter.org's annotated dataset of bee parasitic mites on sticky boards",
-        "contributor": "St Andrews Volunteer Coding Society",
+        "description": "Mitespotter annotated dataset of bee parasitic mites on sticky boards",
+        "contributor": "St Andrews Volunteer Code Society",
         "url": "https://mitespotter.org/download/v1.0.0",
         "date_created": "2026-08-06T12:46:05.020Z"
     },
@@ -123,7 +125,7 @@ mitespotter_v1.0.0/
             "id": 1,
             "width": 4032,
             "height": 3024,
-            "file_name": "train/20260514_080911.jpg",
+            "file_name": "train/0a789958….jpg",
             "license": 1,
             "date_captured": "2026-06-14T09:09:11Z"
         },
@@ -160,7 +162,7 @@ CREATE TABLE IF NOT EXISTS users (
     username CITEXT NOT NULL UNIQUE, -- auto-generated from id, distinguishes anonymous users
     email CITEXT UNIQUE,
     hashed_password TEXT,
-    created_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     anonymous BOOLEAN NOT NULL DEFAULT FALSE,
     is_ai_model BOOLEAN NOT NULL DEFAULT FALSE
 );
@@ -221,8 +223,8 @@ CREATE TABLE IF NOT EXISTS annotations (
     bbox_height REAL NOT NULL,
     area REAL GENERATED ALWAYS AS (bbox_width * bbox_height) STORED,
     is_crowd BOOLEAN NOT NULL DEFAULT FALSE, -- exported as COCO's `iscrowd`
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     confirmed_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
 
@@ -234,6 +236,11 @@ CREATE TABLE IF NOT EXISTS annotations (
     CONSTRAINT fk_annotation_user
         FOREIGN KEY (user_id)
         REFERENCES users(id)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_annotation_category
+        FOREIGN KEY (category_id)
+        REFERENCES categories(id)
         ON DELETE RESTRICT,
 
     CONSTRAINT ck_annotation_bbox
@@ -307,7 +314,7 @@ CREATE TABLE IF NOT EXISTS reports (
     reporter_id BIGINT NOT NULL,
     reason TEXT NOT NULL,
     notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolver_id BIGINT,
     resolution_notes TEXT,
     resolved_at TIMESTAMPTZ,
@@ -374,22 +381,41 @@ CREATE INDEX IF NOT EXISTS idx_reports_open
 	ON reports (created_at) WHERE resolved_at IS NULL;
 ```
 
-**NB**: This schema is for description of the schema only. Real implementation will use SQLAlchemy with Pydantic models.
+**NB**: This SQL describes the schema only. The real implementation is SQLAlchemy models (advanced-alchemy bases) in `models.py`, and the database is only ever changed through Alembic migrations (see [Migrations](#migrations)). API payloads are msgspec structs and Litestar DTOs generated from the models.
 
 Note also that the license is hardcoded at export and has no live source.
+
+### Migrations
+
+- Schema changes are made only through Alembic, driven by advanced-alchemy's Litestar CLI: `uv run litestar --app mitespotter_api.app:app database make-migrations` and `... database upgrade`.
+- The app never runs `create_all`. Startup does not touch the schema.
+- The first revision creates the `CITEXT` extension and the `categories` table, and seeds categories 1 and 2. Later revisions add the remaining tables.
+- Every revision must downgrade cleanly; the test suite runs `upgrade head` and `downgrade base` against a real Postgres.
+
+### Image Status
+
+There is no status column. Status is derived; only non-deleted images and annotations count. The latest of an image's `complete`, `verify` and `reject` events decides it:
+
+| Latest of `complete` / `verify` / `reject` | Annotations | Status      |
+| ------------------------------------------ | ----------- | ----------- |
+| `verify`                                   | any         | Verified    |
+| `complete`                                 | any         | Annotated   |
+| `reject`                                   | any         | Rejected (stays Rejected while being re-annotated, until completed again) |
+| none                                       | ≥ 1         | In Progress |
+| none                                       | 0           | Uploaded    |
 
 ## 2026 Implementation Plan
 
 Dual repository: `mitespotter` (frontend) and `mitespotter-api` (backend). Room for future admin frontend.
 
-Stack: **Litestar + Postgres + psycopg3 + React/Vite/Tailwind/Zustand**
+Stack: **Litestar + advanced-alchemy (SQLAlchemy 2, async) + Alembic + Postgres 16 + psycopg3 + msgspec**, frontend **React/Vite/Tailwind/Zustand**. See [Deployment](#deployment) for where each piece runs.
 
 Annotation concept: **Upload** > **Annotate** > **Complete** > **Verify** | **Reject**.
 
 - **Upload.** An image is uploaded and added to the gallery.
 - **Annotate**. Users draw bounding boxes around all mites they find.
 - **Complete**. A user is satisfied that all varroa mites are labelled and presses "Finish Annotation."
-- **Verify.** A user who has no annotations on the image reviews it. They choose either "Confirm annotations are correct" or "Flag annotations for further review" to reject it.
+- **Verify.** A user who is not the uploader and has no annotations on the image (live or deleted) reviews it. They choose either "Confirm annotations are correct" or "Flag annotations for further review" to reject it.
 - **Reject**. A rejected image gains a "rejected" status so it can be highlighted as near completion, but it behaves exactly like a newly "uploaded" image. It is re-annotated and re-submitted for verification.
 
 Only verified images are exported in the dataset.
@@ -406,7 +432,7 @@ A report flags one image for attention. Images stay visible and usable until act
 
 Until sprint 3 or later, administration (acting on and resolving reports) is done by the development team via direct database access, in service of practicality.
 
-- **Reporting.** Registered users only; anonymous users may report. One open report per user per image (`uq_reports_open`). A reporter can resolve their own report at any time, withdrawing it, and can create new ones. Deleted images cannot be reported.
+- **Reporting.** Registered users only (registered users who chose to be `anonymous` included). One open report per user per image (`uq_reports_open`). A reporter can resolve their own report at any time, withdrawing it, and can create new ones. Deleted images cannot be reported.
 - **Reasons.** `not_a_board`, `duplicate`, `unusable_quality`, `personal_or_inappropriate`, `incorrect_annotations`, `other`. Notes are required for `other` and optional otherwise.
 - **Incorrect annotations.** `incorrect_annotations` is for verified images only (enforced in the service). Disagreement with an unverified image's annotations goes through reject.
 - **Uploader deletion.** An uploader can delete their own image directly only while it is unverified and has no annotations from other users. Otherwise they report it.
@@ -458,9 +484,32 @@ Grouping by uploader trades split balance for independence. With few contributor
 - /download/vX.Y.Z redirects to Zenodo, versions do not stay on file
 - Verifiers who reject can instantly add annotations; make adding an annotation a fast path to rejection.
 - Use `argon2-cffi` for passwords
-- Use Litestar; it's explicit, implements correct DI, guards, OpenAPI generation, and has SQLAlchemy integration. Plus there's docs
-- use python `orjson` --- this can be integrated with Litestar app serializer=orjson.dumps,deserializer=orjson.loads,
-- Serve files outside the app (via nginx or Caddy) --- data/images, data/pyramids, data/thumbnails; `Cache-Control: public, max-age=31536000, immutable` (that's a full year)
+- Use Litestar; it's explicit, implements correct DI, guards, OpenAPI generation, and has SQLAlchemy integration (advanced-alchemy). Plus there's docs
+- Use msgspec (Litestar's native serialiser) for payloads; no orjson or Pydantic needed
+- Serve files outside the app, from Cloudflare R2 --- images, pyramids, thumbnails, datasets; set `Cache-Control: public, max-age=31536000, immutable` (a full year) on upload. Keys are content-addressed by sha256, so they never change.
+
+#### Deployment
+
+Cloudflare fronts everything; one VPS runs the API, the database and the jobs.
+
+```text
+                      ┌──────────── Cloudflare (mitespotter.org) ────────────┐
+browser ──HTTPS──▶    │  /api/*   ──▶ Cloudflare Tunnel ──▶ VPS: Litestar      │
+                      │  /data/*  ──▶ R2 (custom domain, immutable caching)   │
+                      │  /*       ──▶ frontend static assets (wrangler)        │
+                      └───────────────────────────────────────────────────────┘
+VPS: uvicorn (systemd) · Postgres 16 · cloudflared · systemd timers for jobs
+```
+
+- **VPS + Tunnel.** `cloudflared` exposes the API with no inbound ports open. Litestar trusts `CF-Connecting-IP` for the client address.
+- **R2 buckets/prefixes.** `images/`, `thumbnails/`, `pyramids/`, `datasets/`. Accessed through R2's S3-compatible API (`boto3`). In dev and tests the same keys live on local disk under `data/` (`MITESPOTTER_STORAGE=local|r2`).
+- **On the VPS only.** `originals/` and `backups/` stay on local disk until the weekly job moves them to long-term storage.
+- **Frontend.** `mitespotter` is deployed with wrangler as static assets; `/api/*` and `/data/*` are routed before it.
+- **Not used, and why.**
+  - *D1*: SQLite (no CITEXT, no TIMESTAMPTZ, signed 64-bit integers cannot hold the uint64 `phash`), no psycopg/SQLAlchemy async dialect so no advanced-alchemy or Alembic, no `pg_dump`, 10 GB cap.
+  - *Python Workers*: Pyodide only takes pure-Python/Pyodide wheels and Workers have a 128 MB memory limit; ingest needs `rawpy`, `pillow-heif`, `imagecodecs` on 60 MB uploads. Jobs need `pg_dump` and a filesystem.
+  - *Hyperdrive*: only useful when Workers talk to Postgres, which they don't.
+- **Open question.** Weekly long-term storage on prepaid S3 (VCS bylaw) or R2 Infrequent Access.
 
 #### Scheduled Jobs
 
@@ -477,21 +526,22 @@ Use `systemd`, ensure all configurations are committed, symlink into box from `d
   - No near-duplicate spanning two splits (pHash)
   - No image in the latest snapshot has changed splits
   - No annotation on a verified image has `is_ai_model` TRUE
-  - No annotation on a verified image comes from the verifier user
-  - Every verified image has a file on disk and the file's sha256 matches its hash row
+  - No annotation on a verified image comes from the verifier user, and no image was verified by its uploader
+  - Every verified image has a file in storage and the file's sha256 matches its hash row
   - If any of these fail, assume there is a bug and manual intervention is required (future versions can *maybe* consider a self-healing integrity check, but hard)
 -  IF integrity is good THEN snapshot !
   - See [Archive Directory Layout](#archive-directory-layout)
+  - Upload the zip to R2 `datasets/`
   - Delete last week's snapshot of this day (keep 7)
 - Digest and heartbeat
   - Summarise the day's activity (images ingested, images verified, backlog size, per-split counts), integrity failures, whether a snapshot was written, open report count and age of the oldest
-  - Check for orphans in `data/` --- files not in the database, database rows not on file, and flag them (the latter will have caused an integrity failure)
+  - Check for orphans in storage --- files not in the database, database rows not on file, and flag them (the latter will have caused an integrity failure)
   - Check disk space usage and remaining space; if below a threshold, raise the alarm
   - Ping healthchecks.io once everything is done
 
 **Weekly**
 
-- Export checkpoint to AWS S3 (prepaid as per VCS bylaw; Glacier or Infrequent Access if practical), including:
+- Export checkpoint to long-term storage (AWS S3, prepaid as per VCS bylaw, Glacier or Infrequent Access if practical; or R2 Infrequent Access, see [Deployment](#deployment)), including:
   - Nightly database backup (completed just before)
   - Contents of `originals/` (pruning them from box disk)
   - The week's worth of logs (pruning them as well)
@@ -500,94 +550,116 @@ Use `systemd`, ensure all configurations are committed, symlink into box from `d
 
 ### Sprint 0: Backend
 
-Target repo state:
+Target repo state (uv project, `src/` layout, built with `uv_build`):
 
 ```shell
 mitespotter-api/
-├── data/
-│   ├── backups/
-│   │   ├── 2026-08-09.dump
-│   │   └── ...
+├── data/                       # dev/test storage only; R2 in production
+│   ├── backups/                # VPS-local in production too
 │   ├── datasets/
-│   │   ├── mitespotter_2026-08-09.zip
-│   │   └── ...
 │   ├── images/
-│   │   ├── 0a789958.jpg	# strip EXIF, JPEG to 95
-│   │   └── ...
-│   ├── originals/
-│   │   ├── 0a789958.jpg	# hash for deduplication
-│   │   └── ...
+│   │   └── <sha256>.jpg        # EXIF stripped, JPEG quality 95
+│   ├── originals/              # VPS-local in production too
+│   │   └── <sha256>.jpg
 │   ├── pyramids/
-│   │   ├── 0a789958.dzi	# deep zoom image for OpenSeaDragon
-│   │   └── ...
+│   │   └── <sha256>.dzi        # deep zoom image for OpenSeaDragon
 │   └── thumbnails/
-│   │   ├── 0a789958.webp
-│   │   └── ...
+│       └── <sha256>.webp
 ├── deploy/
+│   ├── cloudflared.example.yml
+│   ├── wrangler.toml           # R2 buckets
+│   ├── mitespotter-api.service
 │   ├── mitespotter-nightly.service
 │   ├── mitespotter-nightly.timer
 │   ├── mitespotter-weekly.service
 │   ├── mitespotter-weekly.timer
 │   └── install.sh
-├── imagelibs/
-│   ├── decode.py	# Format dispatcher for supported types
-│   ├── derive.py	# Generate thumbnail and DZI
-│   ├── hashing.py	# sha256 + phash
-│   └── exif.py		# strip exif data
-├── jobs/
-│   ├── __main__.py			# Command parser e.g. `python -m jobs nightly`
-│   ├── nightly.py			# Pipeline, summary and heartbeat
-│   ├── weekly.py			# "
-│   ├── backup.py			# Backup the database and images
-│   ├── check_integrity.py	# Checks against export requirements (EXIF stripped, split integrity, no model annotations in verified, file on disk and hash matches)
-│   ├── export_dataset.py	# IF integrity is good --> Export !
-│   └── prune_to_lts.py		# Weekly S3 backup checkpoint + originals
-├── routes/
-│   ├── auth.py		# Authentication
-│   ├── annotate.py	# Images, annotations, review
-│   └── download.py	# Dataset download
-├── services/
-│   ├── ingest.py	# Decode > hash > dedupe > de-EXIF > derive thumbnail/pyramid
-│   └── review.py	# Handles image status transitions and verification/rejection
+├── src/mitespotter_api/
+│   ├── __init__.py             # main(): server runner (`uv run mitespotter-api`)
+│   ├── app.py                  # Litestar app factory, everything under /api
+│   ├── config.py               # Settings from the environment
+│   ├── db.py                   # advanced-alchemy config + Alembic config
+│   ├── models.py               # SQLAlchemy models (advanced-alchemy bases)
+│   ├── schemas.py              # msgspec structs and DTOs
+│   ├── storage.py              # Storage protocol: LocalStorage, R2Storage
+│   ├── migrations/             # Alembic environment and revisions
+│   ├── imagelibs/
+│   │   ├── decode.py           # Format dispatcher for supported types
+│   │   ├── derive.py           # Generate thumbnail and DZI
+│   │   ├── hashing.py          # sha256 + phash
+│   │   └── exif.py             # strip exif data
+│   ├── jobs/
+│   │   ├── __main__.py         # `python -m mitespotter_api.jobs nightly`
+│   │   ├── nightly.py          # Pipeline, summary and heartbeat
+│   │   ├── weekly.py           # "
+│   │   ├── backup.py           # Backup the database
+│   │   ├── check_integrity.py  # Export requirements (see Scheduled Jobs)
+│   │   ├── export_dataset.py   # IF integrity is good --> Export !
+│   │   └── prune_to_lts.py     # Weekly long-term storage checkpoint + originals
+│   ├── routes/
+│   │   ├── health.py           # Liveness and database checks
+│   │   ├── auth.py             # Authentication
+│   │   ├── images.py           # Images, status transitions
+│   │   ├── annotations.py      # Annotations
+│   │   ├── reports.py          # Reports
+│   │   └── download.py         # Dataset download
+│   └── services/
+│       ├── ingest.py           # Decode > hash > dedupe > de-EXIF > derive > store
+│       └── review.py           # Status transitions and verification/rejection
 ├── tests/
-├── .gitignore
-├── app.py			# Litestar app
-├── config.py		# Constants, paths, secrets
-├── db.py			# Database session & initialisation
-├── main.py			# Server runner
-├── models.py		# Database models (SQLAlchemy)
-├── schemas.py		# API schemas (Pydantic)
+├── .env.example
+├── .github/workflows/test.yml
 ├── pyproject.toml
+├── uv.lock
 └── README.md
 ```
 
-Target endpoints:
+Target endpoints. Every backend endpoint is under `/api`, mounted inside the app (not stripped by the proxy), so OpenAPI paths match production. `{sha256}` is the image's full sha256; annotation and report ids are integers.
 
 ```shell
-# auth
-GET /auth
-POST /create-account
-POST /login
-POST /logout
-POST /verify-email
-POST /change-password
+# health
+GET    /api/health                     # liveness
+GET    /api/health/db                  # database reachable
 
-# annotate
-POST /images
-QUERY /images
-PATCH /images/<id>
-DELETE /images/<id>
-POST /annotations
-QUERY /annotations
-PATCH /annotations/<id>
-DELETE /annotations/<id>
+# auth
+GET    /api/auth/me
+POST   /api/auth/register
+POST   /api/auth/login
+POST   /api/auth/logout
+POST   /api/auth/verify-email
+POST   /api/auth/change-password
+
+# images
+POST   /api/images                     # upload; 409 on duplicate
+GET    /api/images?status=&split=&page=
+GET    /api/images/{sha256}
+PATCH  /api/images/{sha256}
+DELETE /api/images/{sha256}            # uploader soft delete (see Reports & Deletion)
+POST   /api/images/{sha256}/complete
+POST   /api/images/{sha256}/verify
+POST   /api/images/{sha256}/reject
+
+# annotations
+POST   /api/annotations
+GET    /api/annotations?image={sha256}
+PATCH  /api/annotations/{id}
+DELETE /api/annotations/{id}
+
+# reports
+POST   /api/reports
+POST   /api/reports/{id}/withdraw
 
 # download
-GET /download 				# list of releases
-GET /download/latest		# newest release (redirects to /download/vX.Y.Z)
-GET /download/vX.Y.Z		# release; links to DOI
-GET /download/snapshot		# rolling snapshot; clearly labelled not citable
+GET    /api/download                   # list of releases
+GET    /api/download/latest            # redirects to /api/download/vX.Y.Z
+GET    /api/download/vX.Y.Z            # release; redirects to Zenodo DOI
+GET    /api/download/snapshot          # rolling snapshot; clearly labelled not citable
+
+# docs
+GET    /api/schema                     # OpenAPI; frontend types via openapi-typescript
 ```
+
+Litestar has no `QUERY` method, so searches are `GET` with query parameters.
 
 - Maximum upload size 60MB
 - API keys (`/api-keys` CRUD, plus an `api_keys` table) deferred to sprint 3+. Likely read-only for dataset pulls, although having model users POST to the system rather than running them in mitespotter-api might be cleaner. 
@@ -605,19 +677,23 @@ GET /download/snapshot		# rolling snapshot; clearly labelled not citable
 | CR2, NEF, ARW, ORF, RW2, DNG, PEF        | `rawpy`                     |
 | RAW (generic)                            | `rawpy` + depends on camera |
 
-```
-[project.scripts]
-minstall = "scripts.install:main"
-mstart = "scripts.start:main"
-mtest = "scripts.test:main"
-madduser = "scripts.adduser:main"
-mclean = "scripts.clean:main"
-mhttps = "scripts.https:main"
-mhelp = "scripts.help:main"
-```
-Developer tools.
+Developer tools. Only `mitespotter-api` (the server runner) exists today; the rest are added when needed, not promised:
 
-### Sprint 1: Andy
+```toml
+[project.scripts]
+mitespotter-api = "mitespotter_api:main"
+# later: madduser, mclean, ...
+```
+
+#### Testing & CI
+
+- `uv run pytest` runs everything; coverage is reported per file and must be at least 85% for every file (`--cov-fail-under=85` overall, plus a per-file check in CI).
+- Database tests run against a real Postgres named by `MITESPOTTER_TEST_DATABASE_URL`; each test session creates a uniquely named database, runs `upgrade head` and drops it afterwards. Without the variable, those tests are skipped with a reason.
+- Storage tests run `LocalStorage` on a temp directory and `R2Storage` against `moto`.
+- Spec-sync tests check constants in `config.py` against this document.
+- GitHub Actions runs the suite on Python 3.13 with a `postgres:16` service.
+
+### Sprint 1: Frontend
 
 #### User Personas
 
@@ -641,7 +717,7 @@ Three broad categories:
 | Mia     | 36   | Inferrer   | Researcher & beekeeper<br />Wants reliability<br />Needs statistics (proof of argument) |
 | Ping    | 32   | Downloader | AI scientist integrating datasets<br />Wants compatibility   |
 
-Early versions will not serve inferrers as models are nonexistent/still bad and annotation hours are the bottleneck
+Early versions will not serve inferrers (Andy, John, Mia) as models are nonexistent/still bad and annotation hours are the bottleneck
 
 #### Status Indicators
 
@@ -661,7 +737,7 @@ Target repo state:
 mitespotter/
 ├── public/
 │   ├── apple-touch-icon.png
-│   ├── favicon-96x95.png
+│   ├── favicon-96x96.png
 │   ├── favicon.ico
 │   ├── favicon.svg
 │   ├── site.webmanifest
@@ -714,7 +790,7 @@ Routes
 /					# React router
 /auth 				# AuthPage
 /home				# HomePage
-/image/<hash>		# ImagePage
+/image/<sha256>		# ImagePage
 /account 			# AccountPage with contributions view
 /help				# HelpPage
 /download			# DownloadPage (select a version)
@@ -747,14 +823,12 @@ Routes
     Disallow: /account
     Disallow: /auth
     Disallow: /api/
-    Disallow: /dataset
-    Disallow: /download/v*/
     Sitemap: https://mitespotter.org/sitemap.xml
     ```
 
 - `rel="canonical"` point /download/latest at /download/vX.Y.Z
 
-  - /image/<hash> is self-canonical
+  - /image/<sha256> is self-canonical
 
 - Markdown at `/llms.txt`: what the dataset is, category definitions, licence and attribution requirements, the citation string, current version and download URL, the COCO schema and split protocol, and how to contribute --- actually this is literally just the README, maybe it can literally be built from it or symlinked to it
 
