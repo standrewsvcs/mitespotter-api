@@ -203,6 +203,9 @@ CATEGORY_VARROA = Category(id=2, name="varroa destructor", supercategory="mite")
 CATEGORIES = (CATEGORY_DEBRIS, CATEGORY_VARROA)
 CATEGORY_BY_ID = {category.id: category for category in CATEGORIES}
 
+IMAGE_EVENT_TYPES = ("upload", "complete", "verify", "reject", "delete")
+ANNOTATION_EVENT_TYPES = ("create", "update", "confirm", "delete")
+
 REPORT_REASONS = (
     "not_a_board",
     "duplicate",

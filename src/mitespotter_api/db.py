@@ -9,6 +9,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Any, Literal
 
 
 from advanced_alchemy.extensions.litestar import (
@@ -16,6 +17,10 @@ from advanced_alchemy.extensions.litestar import (
     EngineConfig,
     SQLAlchemyAsyncConfig,
 )
+
+
+from alembic.autogenerate import render
+from sqlalchemy.types import TypeDecorator
 
 
 from .config import Settings
@@ -43,5 +48,17 @@ def make_alchemy_config(settings: Settings) -> SQLAlchemyAsyncConfig:
             script_location=str(MIGRATIONS_DIR),
             script_config=str(ALEMBIC_INI),
             version_table_name=VERSION_TABLE,
+            render_as_batch=False,  # batch mode is for SQLite; Postgres alters in place
         ),
     )
+
+
+def render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
+    """Alembic autogenerate hook (see migrations/env.py).
+
+    Renders custom TypeDecorators such as models.UInt64 as their underlying
+    type, so revisions only depend on `sa`. False means Alembic's default rendering.
+    """
+    if type_ == "type" and isinstance(obj, TypeDecorator):
+        return render._repr_type(obj.impl, autogen_context)  # noqa: SLF001
+    return False

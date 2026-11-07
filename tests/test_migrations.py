@@ -50,7 +50,7 @@ def test_head_matches_the_models(database_url):
     from alembic.migration import MigrationContext
     from sqlalchemy import create_engine
 
-    from mitespotter_api.models import Category
+    from mitespotter_api.models import Category  # all models share its metadata
 
     engine = create_engine(database_url)
     try:
@@ -67,7 +67,8 @@ def test_downgrade_to_base_and_back(database_factory):
 
     commands.upgrade("head")
     commands.downgrade("base")
-    assert _query(url, "SELECT to_regclass('categories')") == [(None,)]
+    for table in ("categories", "users", "images", "annotations", "reports"):
+        assert _query(url, f"SELECT to_regclass('{table}')") == [(None,)]
     assert _query(url, "SELECT 1 FROM pg_extension WHERE extname = 'citext'") == []
 
     commands.upgrade("head")
@@ -80,4 +81,5 @@ def test_offline_mode_renders_sql_without_a_database(capsys):
     sql = capsys.readouterr().out
     assert "CREATE EXTENSION IF NOT EXISTS citext" in sql
     assert "CREATE TABLE categories" in sql
+    assert "CREATE UNIQUE INDEX uq_reports_open ON reports (reporter_id, image_id) WHERE resolved_at IS NULL" in sql
     assert "INSERT INTO alembic_version" in sql

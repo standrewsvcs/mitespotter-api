@@ -9,6 +9,7 @@ from advanced_alchemy.base import metadata_registry
 from alembic import context
 
 from mitespotter_api import models  # noqa: F401  (registers tables on the metadata)
+from mitespotter_api.db import render_item
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
@@ -22,6 +23,7 @@ __all__ = ("do_run_migrations", "run_migrations_offline", "run_migrations_online
 # access to the values within the .ini file in use.
 config: "AlembicCommandConfig" = context.config  # type: ignore
 writer = rewriter.Rewriter()
+
 
 
 def run_migrations_offline() -> None:
@@ -47,6 +49,7 @@ def run_migrations_offline() -> None:
         user_module_prefix=config.user_module_prefix,
         render_as_batch=config.render_as_batch,
         process_revision_directives=writer,
+        render_item=render_item,
     )
 
     with context.begin_transaction():
@@ -65,6 +68,7 @@ def do_run_migrations(connection: "Connection") -> None:
         user_module_prefix=config.user_module_prefix,
         render_as_batch=config.render_as_batch,
         process_revision_directives=writer,
+        render_item=render_item,
     )
 
     with context.begin_transaction():

@@ -39,3 +39,27 @@ def test_alembic_config_points_into_the_package(make_settings):
     assert (MIGRATIONS_DIR / "env.py").is_file()
     assert ALEMBIC_INI.is_file()
     assert any((MIGRATIONS_DIR / "versions").glob("0001_*.py"))
+
+
+def _autogen_context():
+    from alembic.autogenerate.api import AutogenContext
+    from alembic.migration import MigrationContext
+    from sqlalchemy.dialects import postgresql
+
+    return AutogenContext(MigrationContext.configure(dialect=postgresql.dialect(), opts={"sqlalchemy_module_prefix": "sa.", "user_module_prefix": "sa."}))
+
+
+def test_render_item_renders_type_decorators_as_their_impl():
+    from mitespotter_api.db import render_item
+    from mitespotter_api.models import UInt64
+
+    assert render_item("type", UInt64(), _autogen_context()) == "sa.Numeric(precision=20, scale=0)"
+
+
+def test_render_item_defers_everything_else_to_alembic():
+    from sqlalchemy import Integer
+
+    from mitespotter_api.db import render_item
+
+    assert render_item("type", Integer(), _autogen_context()) is False
+    assert render_item("server_default", "now()", _autogen_context()) is False
