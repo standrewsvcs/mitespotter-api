@@ -1,6 +1,6 @@
 """
-src/mitespotter_api/routes/config.py
-Environment, server, and database configuration
+src/mitespotter_api/config.py
+Environment, server, database, storage and dataset configuration
 
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
@@ -9,26 +9,25 @@ from __future__ import annotations
 
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 
 # MARK: Env helpers
 
-def _env_str(name: str, default: str | None = None) -> str:
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        raw = default
-    if raw is None:
+def _env_str(environ: Mapping[str, str], name: str, default: str | None = None) -> str:
+    raw = environ.get(name, "").strip()
+    if raw:
+        return raw
+    if default is None:
         raise ValueError(f"{name} must be set")
-    return str(raw).strip()
+    return str(default).strip()
 
 
-def _env_bool(name: str, default: bool | None = None) -> bool:
-    raw = os.environ.get(name, "").strip().lower()
-    if raw is None or raw == "":
-        if default is None:
-            raise ValueError(f"'{name}' must be set")
+def _env_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = environ.get(name, "").strip().lower()
+    if raw == "":
         return default
     if raw in ("1", "true", "yes", "on"):
         return True
@@ -37,11 +36,9 @@ def _env_bool(name: str, default: bool | None = None) -> bool:
     raise ValueError(f"'{name}' must be a boolean, got '{raw}'")
 
 
-def _env_int(name: str, default: int | None = None) -> int:
-    raw = os.environ.get(name, "").strip()
-    if raw is None or raw == "":
-        if default is None:
-            raise ValueError(f"'{name}' must be set")
+def _env_int(environ: Mapping[str, str], name: str, default: int) -> int:
+    raw = environ.get(name, "").strip()
+    if raw == "":
         return default
     try:
         return int(raw)
@@ -49,48 +46,120 @@ def _env_int(name: str, default: int | None = None) -> int:
         raise ValueError(f"'{name}' must be an integer, got '{raw}'") from e
 
 
-# MARK: Runtime env
+def _env_choice(environ: Mapping[str, str], name: str, choices: tuple[str, ...], default: str) -> str:
+    value = _env_str(environ, name, default)
+    if value not in choices:
+        raise ValueError(f"{name} must be one of {choices}, got '{value}'")
+    return value
+
+
+# MARK: Settings
 
 ENVIRONMENTS = ("dev", "test", "prod")
-ENVIRONMENT = _env_str("MITESPOTTER_ENV", "dev")
-if ENVIRONMENT not in ENVIRONMENTS:
-    raise ValueError(f"MITESPOTTER_ENV must be one of {ENVIRONMENTS}, got '{ENVIRONMENT}'")
-
-IS_PRODUCTION = ENVIRONMENT == "prod"
-IS_TEST = ENVIRONMENT == "test"
-DEBUG = _env_bool("MITESPOTTER_DEBUG", not IS_PRODUCTION)
+STORAGE_BACKENDS = ("local", "r2")
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-# MARK: Server
+@dataclass(frozen=True)
+class Settings:
+    """Everything the application reads from the environment"""
+    environment: str
+    debug: bool
+    host: str
+    port: int
+    secret_key: str
+    database_url: str
+    sql_echo: bool
+    data_dir: Path
+    max_upload_bytes: int
+    jpeg_quality: int
+    storage: str
+    r2_account_id: str | None
+    r2_bucket: str | None
+    r2_access_key_id: str | None
+    r2_secret_access_key: str | None
+    public_data_url: str
 
-HOST = _env_str("MITESPOTTER_HOST", "127.0.0.1")
-PORT = _env_int("MITESPOTTER_PORT", 6776)
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "prod"
+
+    @property
+    def is_test(self) -> bool:
+        return self.environment == "test"
+
+    @property
+    def r2_endpoint_url(self) -> str:
+        return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
+        env = os.environ if environ is None else environ
+
+        environment = _env_choice(env, "MITESPOTTER_ENV", ENVIRONMENTS, "dev")
+        is_production = environment == "prod"
+        debug = _env_bool(env, "MITESPOTTER_DEBUG", not is_production)
+
+        secret_key = env.get("MITESPOTTER_SECRET_KEY", "").strip()
+        if not secret_key:
+            if is_production:
+                raise RuntimeError("MITESPOTTER_SECRET_KEY must be set when MITESPOTTER_ENV=prod")
+            secret_key = "dev-secret-key"
+
+        storage = _env_choice(env, "MITESPOTTER_STORAGE", STORAGE_BACKENDS, "local")
+        r2 = {
+            name: env.get(f"MITESPOTTER_{name.upper()}", "").strip() or None
+            for name in ("r2_account_id", "r2_bucket", "r2_access_key_id", "r2_secret_access_key")
+        }
+        if storage == "r2":
+            missing = [f"MITESPOTTER_{name.upper()}" for name, value in r2.items() if value is None]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set when MITESPOTTER_STORAGE=r2")
+
+        data_dir = Path(_env_str(env, "MITESPOTTER_DATA_DIR", str(_REPO_ROOT / "data")))
+
+        return cls(
+            environment=environment,
+            debug=debug,
+            host=_env_str(env, "MITESPOTTER_HOST", "127.0.0.1"),
+            port=_env_int(env, "MITESPOTTER_PORT", 6776),
+            secret_key=secret_key,
+            database_url=_env_str(env, "MITESPOTTER_DATABASE_URL"),  # No default, must be set
+            sql_echo=_env_bool(env, "MITESPOTTER_SQL_ECHO", debug),
+            data_dir=data_dir.expanduser().resolve(),
+            max_upload_bytes=_env_int(env, "MITESPOTTER_MAX_UPLOAD_BYTES", 60 * 1024 * 1024),  # 60 MB
+            jpeg_quality=_env_int(env, "MITESPOTTER_JPEG_QUALITY", 95),
+            storage=storage,
+            public_data_url=_env_str(env, "MITESPOTTER_PUBLIC_DATA_URL", "/data").rstrip("/"),
+            **r2,
+        )
 
 
-# MARK: Secrets
-
-def _resolve_secret_key() -> str:
-    key = _env_str("MITESPOTTER_SECRET_KEY", "")
-    if key:
-        return key
-    if IS_PRODUCTION:
-        raise RuntimeError("MITESPOTTER_SECRET_KEY must be set when MITESPOTTER_ENV=prod")
-    return "dev-secret-key"
+settings = Settings.from_env()
 
 
-SECRET_KEY = _resolve_secret_key()
+# MARK: Module constants (derived from settings)
 
+ENVIRONMENT = settings.environment
+IS_PRODUCTION = settings.is_production
+IS_TEST = settings.is_test
+DEBUG = settings.debug
 
-# MARK: Database
+HOST = settings.host
+PORT = settings.port
 
-DATABASE_URL = _env_str("MITESPOTTER_DATABASE_URL", None)   # No default, must be set
-SQL_ECHO = _env_bool("MITESPOTTER_SQL_ECHO", DEBUG)
+SECRET_KEY = settings.secret_key
+
+DATABASE_URL = settings.database_url
+SQL_ECHO = settings.sql_echo
+
+MAX_UPLOAD_BYTES = settings.max_upload_bytes
+JPEG_QUALITY = settings.jpeg_quality
 
 
 # MARK: Paths
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = Path(_env_str("MITESPOTTER_DATA_DIR", _REPO_ROOT / "data")).expanduser().resolve()
+DATA_DIR = settings.data_dir
 
 BACKUPS_DIR    = DATA_DIR / "backups"
 DATASETS_DIR   = DATA_DIR / "datasets"
@@ -114,12 +183,6 @@ def create_data_dirs() -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
-# MARK: Ingest
-
-MAX_UPLOAD_BYTES = _env_int("MITESPOTTER_MAX_UPLOAD_BYTES", 60 * 1024 * 1024)  # 60 MB
-JPEG_QUALITY = _env_int("MITESPOTTER_JPEG_QUALITY", 95)
-
-
 # MARK: Dataset
 
 SPLITS = ("train", "val", "test")
@@ -140,13 +203,22 @@ CATEGORY_VARROA = Category(id=2, name="varroa destructor", supercategory="mite")
 CATEGORIES = (CATEGORY_DEBRIS, CATEGORY_VARROA)
 CATEGORY_BY_ID = {category.id: category for category in CATEGORIES}
 
+REPORT_REASONS = (
+    "not_a_board",
+    "duplicate",
+    "unusable_quality",
+    "personal_or_inappropriate",
+    "incorrect_annotations",
+    "other",
+)
+
 COCO_LICENSE = {
     "id": 1,
     "name": "CC BY 4.0",
     "url": "https://creativecommons.org/licenses/by/4.0/"
 }
 
-COCO_CONTRIBUTOR = "St Andrews Volunteer Coding Society"
+COCO_CONTRIBUTOR = "St Andrews Volunteer Code Society"
 COCO_DESCRIPTION = "Mitespotter annotated dataset of bee parasitic mites on sticky boards"
 COCO_INFO_YEAR = 2026
 
@@ -156,7 +228,7 @@ COCO_FILENAMES = {
     "test": "instances_test.json"
 }
 
-MANIFEST_FILENAME = "manifest.json"
+MANIFEST_FILENAME = "MANIFEST.json"
 VERSION_DIR_PREFIX = "mitespotter_v"
 SNAPSHOT_DIR_PREFIX = "mitespotter_"
 SNAPSHOT_DISCLAIMER = (

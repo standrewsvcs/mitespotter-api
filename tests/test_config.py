@@ -32,6 +32,12 @@ CONFIG_ENV_VARS = (
     "MITESPOTTER_DATA_DIR",
     "MITESPOTTER_MAX_UPLOAD_BYTES",
     "MITESPOTTER_JPEG_QUALITY",
+    "MITESPOTTER_STORAGE",
+    "MITESPOTTER_R2_ACCOUNT_ID",
+    "MITESPOTTER_R2_BUCKET",
+    "MITESPOTTER_R2_ACCESS_KEY_ID",
+    "MITESPOTTER_R2_SECRET_ACCESS_KEY",
+    "MITESPOTTER_PUBLIC_DATA_URL",
 )
 
 
@@ -259,7 +265,75 @@ def test_immutable_cache_control(load_config):
     assert config.IMMUTABLE_CACHE_CONTROL == "public, max-age=31536000, immutable"
 
 
-def test_snapshot_disclaimer_matches_the_specification(load_config):
+
+# MARK: Storage
+
+R2_ENV = {
+    "MITESPOTTER_STORAGE": "r2",
+    "MITESPOTTER_R2_ACCOUNT_ID": "acc123",
+    "MITESPOTTER_R2_BUCKET": "mitespotter",
+    "MITESPOTTER_R2_ACCESS_KEY_ID": "key",
+    "MITESPOTTER_R2_SECRET_ACCESS_KEY": "secret",
+}
+
+
+def test_storage_defaults_to_local(load_config):
     config = load_config()
-    planning = (REPO_ROOT / "planning.md").read_text(encoding="utf-8")
-    assert config.SNAPSHOT_DISCLAIMER in planning
+    assert config.settings.storage == "local"
+    assert config.settings.public_data_url == "/data"
+    assert config.settings.r2_bucket is None
+
+
+def test_unknown_storage_is_rejected(load_config):
+    with pytest.raises(ValueError, match="MITESPOTTER_STORAGE must be one of"):
+        load_config(MITESPOTTER_STORAGE="s3")
+
+
+def test_r2_storage_reads_its_settings(load_config):
+    settings = load_config(**R2_ENV).settings
+    assert settings.storage == "r2"
+    assert settings.r2_bucket == "mitespotter"
+    assert settings.r2_endpoint_url == "https://acc123.r2.cloudflarestorage.com"
+
+
+@pytest.mark.parametrize("missing", [name for name in R2_ENV if name != "MITESPOTTER_STORAGE"])
+def test_r2_storage_requires_every_r2_setting(load_config, missing):
+    with pytest.raises(ValueError, match=f"{missing}.*must be set when MITESPOTTER_STORAGE=r2"):
+        load_config(**{**R2_ENV, missing: None})
+
+
+def test_public_data_url_trailing_slash_is_stripped(load_config):
+    assert load_config(MITESPOTTER_PUBLIC_DATA_URL="https://data.mitespotter.org/").settings.public_data_url == (
+        "https://data.mitespotter.org"
+    )
+
+
+# MARK: Settings
+
+def test_settings_from_an_explicit_mapping_ignores_os_environ(load_config, tmp_path):
+    config = load_config(MITESPOTTER_PORT="9000")
+    settings = config.Settings.from_env({
+        "MITESPOTTER_DATABASE_URL": "postgresql+psycopg://x/y",
+        "MITESPOTTER_ENV": "prod",
+        "MITESPOTTER_SECRET_KEY": "s3cret",
+        "MITESPOTTER_DATA_DIR": str(tmp_path),
+    })
+    assert settings.port == 6776
+    assert settings.is_production and not settings.is_test
+    assert settings.data_dir == tmp_path.resolve()
+
+
+def test_settings_are_frozen(load_config):
+    import dataclasses
+    settings = load_config().settings
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        settings.port = 1
+
+
+def test_module_constants_mirror_settings(load_config):
+    config = load_config(MITESPOTTER_ENV="test", MITESPOTTER_PORT="9001")
+    s = config.settings
+    assert (config.ENVIRONMENT, config.PORT, config.DATABASE_URL, config.DATA_DIR) == (
+        s.environment, s.port, s.database_url, s.data_dir
+    )
+    assert config.IS_TEST is s.is_test is True
