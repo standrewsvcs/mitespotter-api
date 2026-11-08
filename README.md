@@ -25,7 +25,7 @@ The OpenAPI schema is at `/api/schema` (`/api/schema/openapi.json` for the front
 
 ## Run the public dev server
 
-The team's dev server: a systemd service behind a Cloudflare named tunnel on a fixed hostname (here `dev.mitespotter.org`). It is on the public internet, so it runs with `MITESPOTTER_ENV=prod`. The steps are the same on a laptop and on the VPS (Ubuntu or Debian with systemd); to move it later, set it up on the VPS and run the tunnel there instead. You need uv, Postgres 16 with its client (`psql`), and [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
+The team's dev server: a systemd service behind a Cloudflare named tunnel on a fixed hostname (here `dev.mitespotter.org`). It is on the public internet, so it runs with `MITESPOTTER_ENV=prod`. The steps are the same on a laptop and on the VPS (Ubuntu or Debian with systemd); to move it later, set it up on the VPS and run the tunnel there instead. On a laptop, give the server its own clone: the service holds port 6776 and runs whatever branch that checkout is on. You need uv, Postgres 16 with its client (`psql`), and [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
 
 1. **Database.** A database and user of its own (`install.sh` never creates them):
    ```shell
@@ -47,7 +47,7 @@ The team's dev server: a systemd service behind a Cloudflare named tunnel on a f
 4. **Resend.** Create an API key. Until a domain is verified, send from `onboarding@resend.dev`: Resend then only delivers to the Resend account owner's own address.
 5. **Settings.** `cp deploy/dev.env.example deploy/dev.env` and fill it in (secret key, database password, Resend key, Google client).
 6. **Install.** `deploy/install.sh` as the user the service should run as (it uses sudo for systemd; `--dry-run` shows what it would do). It syncs dependencies, checks the settings, migrates, installs `mitespotter-api.service` and the nightly `mitespotter-cleanup.timer`, and (re)starts the API. Run it again after every `git pull`.
-7. **Check.** `curl https://dev.mitespotter.org/api/health`. Logs: `journalctl -u mitespotter-api -f`.
+7. **Check.** `curl https://dev.mitespotter.org/api/health`. Logs: `journalctl -u mitespotter-api -f`. Try every account flow from your phone at `https://dev.mitespotter.org/api/dev` (`MITESPOTTER_DEV_PAGE`: on by default outside prod, off in prod, on in `dev.env.example`).
 
 ## Migrations
 

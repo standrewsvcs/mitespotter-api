@@ -588,7 +588,7 @@ VPS: uvicorn (systemd) · Postgres 16 · cloudflared · systemd timers for jobs
 
 #### Scheduled Jobs
 
-Use `systemd`, ensure all configurations are committed, symlink into box from `deploy/`.
+Use `systemd`; every unit is committed in `deploy/` as a template, and `deploy/install.sh` renders it with the checkout path and user and installs it (re-run after every `git pull`). The nightly cleanup timer exists; the other jobs follow.
 
 **Nightly**
 
