@@ -356,3 +356,31 @@ def test_google_refuses_ai_models(make_client, app_database):
 
     fresh, _ = _google_client(make_client, GoogleIdentity(sub="r4", email="bot4@example.org", name=None))
     assert _google_round_trip(fresh).headers["location"].endswith("/auth?message=google_failed")
+
+
+# MARK: Usernames
+
+def test_register_with_a_username_and_change_it(client):
+    client.register("named@example.org", username="  Hive   Mind ")
+    client.enter_code("named@example.org")
+    assert client.get("/api/auth/me").json()["username"] == "Hive Mind"
+
+    response = client.post("/api/auth/change-username", {"username": "hive.mind_2"})
+    assert response.json() == {"message": messages.username_changed}
+    assert client.get("/api/auth/me").json()["username"] == "hive.mind_2"
+
+
+@pytest.mark.parametrize("path", ["/api/auth/register", "/api/auth/change-username"])
+def test_invalid_usernames_are_refused(client, path):
+    client.account(f"checker{len(path)}@example.org")
+    body = {"email": "x@example.org", "email_confirmation": "x@example.org", "password": PASSWORD, "username": "no"}
+    response = client.post(path, body if path.endswith("register") else {"username": "@@"})
+    assert (response.status_code, response.json()["detail"]) == (400, messages.username_invalid)
+
+
+def test_taken_usernames_are_refused(make_client):
+    owner = make_client()
+    owner.register("owner@example.org", username="Only One")
+    owner.enter_code("owner@example.org")
+    response = make_client().register("rival@example.org", username="only one")
+    assert (response.status_code, response.json()["detail"]) == (400, messages.username_taken)

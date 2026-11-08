@@ -8,31 +8,47 @@ Authors: Maxence Morel Dierckx
 """
 from __future__ import annotations
 
+import random
+import re
+
+import pytest
+
 from mitespotter_api import usernames
 from mitespotter_api.config import config
 
 
-def test_base_is_an_adjective_and_a_noun():
-    adjective, noun = usernames.base(1).split(" ")
-    assert adjective in config.username_adjectives
-    assert noun in config.username_nouns
+def test_candidates_are_word_pairs_then_triples_without_numbers():
+    names = list(usernames.candidates(random.Random(1)))
+    n = config.username_generation_attempts
+    assert len(names) == 2 * n
+    for name in names[:n]:
+        adjective, noun = name.split(" ")
+        assert adjective in config.username_adjectives and noun in config.username_nouns
+    for name in names[n:]:
+        first, second, noun = name.split(" ")
+        assert first != second
+        assert {first, second} <= set(config.username_adjectives) and noun in config.username_nouns
+    assert not any(re.search(r"\d", name) for name in names)
 
 
-def test_base_is_deterministic_per_id():
-    assert usernames.base(42) == usernames.base(42)
-    assert len({usernames.base(i) for i in range(1, 200)}) > 150
+def test_candidates_are_random_not_derived_from_anything():
+    assert len({next(usernames.candidates()) for _ in range(50)}) > 25
 
 
-def test_free_base_is_used_as_is():
-    assert usernames.generate(7, taken=[]) == usernames.base(7)
+@pytest.mark.parametrize(("raw", "normalised"), [
+    ("  Buzzy   Finder ", "Buzzy Finder"),
+    ("hilda", "hilda"),
+    ("a\\tb", "a\\tb"),
+])
+def test_normalise(raw, normalised):
+    assert usernames.normalise(raw) == normalised
 
 
-def test_lowest_free_number_is_appended():
-    name = usernames.base(7)
-    assert usernames.generate(7, taken=[name]) == f"{name} 1"
-    assert usernames.generate(7, taken=[name, f"{name} 1", f"{name} 3"]) == f"{name} 2"
+@pytest.mark.parametrize("name", ["hil", "Hilda the Beekeeper", "mite.spotter_99", "a-b", "x" * 30])
+def test_valid_usernames(name):
+    assert usernames.is_valid(name)
 
 
-def test_taken_is_case_insensitive():
-    name = usernames.base(7)
-    assert usernames.generate(7, taken=[name.upper()]) == f"{name} 1"
+@pytest.mark.parametrize("name", ["", "ab", "x" * 31, " hilda", "hilda ", "-hilda", "hilda.", "hil@da", "émile", "a\\tb"])
+def test_invalid_usernames(name):
+    assert not usernames.is_valid(name)

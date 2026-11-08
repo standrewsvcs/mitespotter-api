@@ -1,6 +1,9 @@
 """
 src/mitespotter_api/usernames.py
-Usernames generated from user ids: "nimble longstepper", "buzzy finder 1"
+Usernames: chosen at registration, or generated ("nimble longstepper")
+
+Generated names are random word pairs, never derived from ids and never
+numbered; if pairs keep colliding, a second adjective is added.
 
 Created: 2026-11-08
 Authors: Maxence Morel Dierckx
@@ -9,25 +12,32 @@ from __future__ import annotations
 
 
 import random
-from collections.abc import Collection
+import re
+import secrets
+from collections.abc import Iterator
 
 
 from .config import config
 
 
-def base(user_id: int) -> str:
-    """The adjective and noun for an id; the same id always gives the same pair"""
-    rng = random.Random(user_id)
-    return f"{rng.choice(config.username_adjectives)} {rng.choice(config.username_nouns)}"
+_PATTERN = re.compile(config.username_pattern)
+_SYSTEM_RANDOM = secrets.SystemRandom()
 
 
-def generate(user_id: int, taken: Collection[str]) -> str:
-    """The base name, or the base name and the lowest free number; `taken` compares case-insensitively"""
-    taken_lower = {name.lower() for name in taken}
-    name = base(user_id)
-    if name not in taken_lower:
-        return name
-    number = 1
-    while f"{name} {number}" in taken_lower:
-        number += 1
-    return f"{name} {number}"
+def normalise(name: str) -> str:
+    """Trims and collapses runs of whitespace to one space"""
+    return " ".join(name.split())
+
+
+def is_valid(name: str) -> bool:
+    return config.username_min_length <= len(name) <= config.username_max_length and bool(_PATTERN.match(name))
+
+
+def candidates(rng: random.Random = _SYSTEM_RANDOM) -> Iterator[str]:
+    """Random "adjective noun" pairs, then "adjective adjective noun" triples"""
+    adjectives, nouns = config.username_adjectives, config.username_nouns
+    for _ in range(config.username_generation_attempts):
+        yield f"{rng.choice(adjectives)} {rng.choice(nouns)}"
+    for _ in range(config.username_generation_attempts):
+        first, second = rng.sample(adjectives, 2)
+        yield f"{first} {second} {rng.choice(nouns)}"

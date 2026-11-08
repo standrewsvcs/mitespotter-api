@@ -75,16 +75,9 @@ async def test_entering_the_code_creates_a_verified_account(db):
     assert user.email_verified_at is not None
     assert user.is_registered
     assert user.check_password(PASSWORD)
-    assert re.fullmatch(r"[a-z]+ [a-z]+( \d+)?", user.username)
+    assert re.fullmatch(r"[a-z]+ [a-z]+( [a-z]+)?", user.username)
     assert auth.cookie_value and auth.user_session.token_hash != auth.cookie_value
     auth.require_registered()
-
-
-async def test_usernames_are_numbered_when_taken(db, monkeypatch):
-    monkeypatch.setattr(auth_module.usernames, "base", lambda user_id: "buzzy finder")
-    first = await _account(db, "a@example.org")
-    second = await _account(db, "b@example.org")
-    assert (first.username, second.username) == ("buzzy finder", "buzzy finder 1")
 
 
 async def test_same_password_signs_you_in(db):
@@ -401,23 +394,50 @@ def test_corrupt_hashes_fail_closed():
     assert User(username="x", hashed_password="not-a-hash").check_password(PASSWORD) is False
 
 
-# MARK: Username race
+# MARK: Usernames
 
-async def test_a_username_taken_meanwhile_is_retried_with_the_next_number(db, monkeypatch):
-    real_generate = auth_module.usernames.generate
-    monkeypatch.setattr(auth_module.usernames, "base", lambda user_id: "plucky scout")
-    await _account(db, "first@example.org")  # takes "plucky scout"
-    calls = []
+async def test_a_chosen_username_is_used(db):
+    result = await register(db, "nolan@example.org", PASSWORD, None, False, username="Nolan Bee")
+    auth = await Auth.from_code(db, "nolan@example.org", "register", _code_of(result))
+    assert auth.user.username == "Nolan Bee"
 
-    def generate_blind_to_the_first_lookup(user_id, taken):
-        calls.append(set(taken))
-        return real_generate(user_id, set() if len(calls) == 1 else taken)  # first try collides
 
-    monkeypatch.setattr(auth_module.usernames, "generate", generate_blind_to_the_first_lookup)
-    user = await _account(db, "second@example.org")
+async def test_a_taken_username_is_refused_whatever_the_address(db):
+    await _account(db, "hilda@example.org")
+    hilda = await db.scalar(select(User.username).where(User.email == "hilda@example.org"))
+    for email in ("hilda@example.org", "someone.new@example.org"):
+        with pytest.raises(ClientException, match=messages.username_taken):
+            await register(db, email, "another password", None, False, username=hilda.upper())
 
-    assert user.username == "plucky scout 1"
-    assert len(calls) == 2
+
+async def test_a_username_taken_before_the_code_falls_back_to_a_generated_one(db):
+    result = await register(db, "slow@example.org", PASSWORD, None, False, username="quick name")
+    fast = await register(db, "fast@example.org", PASSWORD, None, False, username="quick name")
+    await Auth.from_code(db, "fast@example.org", "register", _code_of(fast))
+
+    slow = await Auth.from_code(db, "slow@example.org", "register", _code_of(result))
+    assert slow.user.username != "quick name"
+    assert re.fullmatch(r"[a-z]+ [a-z]+( [a-z]+)?", slow.user.username)
+
+
+async def test_generated_usernames_skip_taken_candidates(db, monkeypatch):
+    await _account(db, "first@example.org")
+    first = await db.scalar(select(User.username).where(User.email == "first@example.org"))
+    monkeypatch.setattr(auth_module.usernames, "candidates", lambda: iter([first, "free pick"]))
+    assert (await auth_module._create_user(db, email="second@example.org")).username == "free pick"
+
+
+async def test_a_username_lost_to_a_race_moves_on(db, monkeypatch):
+    await _account(db, "first@example.org")
+    first = await db.scalar(select(User.username).where(User.email == "first@example.org"))
+    monkeypatch.setattr(auth_module.usernames, "candidates", lambda: iter([first, "free pick"]))
+    real_taken = auth_module.username_taken
+
+    async def blind(db, username, by_other_than=None):  # the check misses the clash, the unique index catches it
+        return False if username == first else await real_taken(db, username, by_other_than)
+
+    monkeypatch.setattr(auth_module, "username_taken", blind)
+    assert (await auth_module._create_user(db, email="second@example.org")).username == "free pick"
 
 
 async def test_other_integrity_errors_are_not_retried(db):
@@ -426,12 +446,38 @@ async def test_other_integrity_errors_are_not_retried(db):
         await auth_module._create_user(db, email="dup@example.org")
 
 
-async def test_username_attempts_run_out(db, monkeypatch):
-    monkeypatch.setattr(auth_module.usernames, "base", lambda user_id: "steady sentry")
+async def test_candidates_can_run_out(db, monkeypatch):
     await _account(db, "taken@example.org")
-    monkeypatch.setattr(auth_module.usernames, "generate", lambda user_id, taken: "steady sentry")
+    taken = await db.scalar(select(User.username).where(User.email == "taken@example.org"))
+    monkeypatch.setattr(auth_module.usernames, "candidates", lambda: iter([taken]))
     with pytest.raises(RuntimeError, match="No free username"):
         await auth_module._create_user(db, email="next@example.org")
+
+
+async def test_change_username(db):
+    first = await Auth.login(db, (await _account(db, "a@example.org")).email, PASSWORD)
+    await _account(db, "b@example.org")
+    other = await db.scalar(select(User.username).where(User.email == "b@example.org"))
+
+    with pytest.raises(ClientException, match=messages.username_taken):
+        await first.change_username(other)
+    await first.change_username("Brand New")
+    assert first.user.username == "Brand New"
+    await first.change_username("brand new")  # your own name, in another case: fine
+    assert first.user.username == "brand new"
+
+
+async def test_change_username_lost_to_a_race(db, monkeypatch):
+    first = await Auth.login(db, (await _account(db, "a@example.org")).email, PASSWORD)
+    await _account(db, "b@example.org")
+    other = await db.scalar(select(User.username).where(User.email == "b@example.org"))
+
+    async def blind(db, username, by_other_than=None):
+        return False
+
+    monkeypatch.setattr(auth_module, "username_taken", blind)
+    with pytest.raises(ClientException, match=messages.username_taken):
+        await first.change_username(other)
 
 
 # MARK: Which email

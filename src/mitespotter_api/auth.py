@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 
 from litestar.exceptions import ClientException, NotAuthorizedException, PermissionDeniedException
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -61,26 +61,24 @@ async def _user_by_email(db: AsyncSession, email: str) -> User | None:
     return await db.scalar(select(User).where(User.email == email.strip()))
 
 
-USERNAME_ATTEMPTS = 5
-
-
 def _violates(error: IntegrityError, constraint: str) -> bool:
     return getattr(getattr(error.orig, "diag", None), "constraint_name", None) == constraint
 
 
-async def _create_user(db: AsyncSession, **fields) -> User:
-    """Takes the id from the sequence first, so the username can be generated from it.
+async def username_taken(db: AsyncSession, username: str, by_other_than: User | None = None) -> bool:
+    statement = select(User.id).where(User.username == username)
+    if by_other_than is not None:
+        statement = statement.where(User.id != by_other_than.id)
+    return await db.scalar(statement) is not None
 
-    Another account may take the same username between the lookup and the insert;
-    the insert then runs again with that name counted as taken.
-    """
-    user_id = await db.scalar(text("SELECT nextval(pg_get_serial_sequence('users', 'id'))"))
-    name = usernames.base(user_id)
-    taken = set(await db.scalars(
-        select(User.username).where(or_(User.username == name, User.username.like(f"{name} %")))
-    ))
-    for _ in range(USERNAME_ATTEMPTS):
-        user = User(id=user_id, username=usernames.generate(user_id, taken), **fields)
+
+async def _create_user(db: AsyncSession, username: str | None = None, **fields) -> User:
+    """The chosen username, else a generated one. A name taken meanwhile (another
+    account, or the unique index losing a race) moves on to the next candidate."""
+    for candidate in ([username] if username else []) + list(usernames.candidates()):
+        if await username_taken(db, candidate):
+            continue
+        user = User(username=candidate, **fields)
         try:
             async with db.begin_nested():
                 db.add(user)
@@ -88,10 +86,9 @@ async def _create_user(db: AsyncSession, **fields) -> User:
         except IntegrityError as e:
             if not _violates(e, "uq_users_username"):
                 raise
-            taken.add(user.username)
             continue
         return user
-    raise RuntimeError(f"No free username for user {user_id} after {USERNAME_ATTEMPTS} attempts")
+    raise RuntimeError("No free username")
 
 
 async def _revoke_sessions(db: AsyncSession, user: User, keep: UserSession | None = None) -> None:
@@ -132,16 +129,24 @@ async def _issue_code(db: AsyncSession, email: str, purpose: str, kind: str, **d
 
 # MARK: Unauthenticated steps
 
-async def register(db: AsyncSession, email: str, password: str, name: str | None, anonymous: bool) -> Auth | Email | None:
+async def register(
+    db: AsyncSession, email: str, password: str, name: str | None, anonymous: bool, username: str | None = None,
+) -> Auth | Email | None:
     """Your password matches the account at this address: signed in. Otherwise a code is emailed (or was, within the
-    last minute); entering it creates the account or sets the new password."""
+    last minute); entering it creates the account or sets the new password.
+
+    A chosen username is checked first, whatever the address, so the answer never depends on whether it exists.
+    It applies to new accounts only; if it is taken by the time the code is entered, a generated one is used.
+    """
+    if username is not None and await username_taken(db, username):
+        raise ClientException(messages.username_taken)
     user = await _user_by_email(db, email)
     matched = user.check_password(password) if user is not None else check_password_hash(None, password)
     if user is not None and matched:
         return await Auth._start(db, user)
     return await _issue_code(
         db, email, "register", "register" if user is None else "register_existing",
-        password_hash=hash_password(password), name=name, anonymous=anonymous,
+        password_hash=hash_password(password), name=name, anonymous=anonymous, username=username,
     )
 
 
@@ -230,7 +235,7 @@ class Auth:
             if purpose != "register":
                 raise ClientException(messages.code_invalid)
             user = await _create_user(
-                db, email=row.email, name=row.name, anonymous=bool(row.anonymous),
+                db, username=row.username, email=row.email, name=row.name, anonymous=bool(row.anonymous),
                 hashed_password=row.password_hash, email_verified_at=now,
             )
         elif user.is_ai_model:
@@ -275,6 +280,16 @@ class Auth:
             raise ClientException(messages.password_wrong)
         self.user.set_password(new)
         await _revoke_sessions(self._db, self.user, keep=self.user_session)
+
+    async def change_username(self, username: str) -> None:
+        if await username_taken(self._db, username, by_other_than=self.user):
+            raise ClientException(messages.username_taken)
+        try:
+            async with self._db.begin_nested():
+                self.user.username = username
+                await self._db.flush()
+        except IntegrityError as e:  # taken between the check and the update
+            raise ClientException(messages.username_taken) from e
 
     async def link_google(self, identity: GoogleIdentity) -> None:
         owner = await self._db.scalar(select(User).where(User.google_sub == identity.sub))

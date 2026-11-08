@@ -23,6 +23,7 @@ Email = Annotated[str, Meta(max_length=254)]
 Password = Annotated[str, Meta(max_length=config.password_max_length)]
 Name = Annotated[str, Meta(max_length=200)]
 Code = Annotated[str, Meta(max_length=16)]
+Username = Annotated[str, Meta(max_length=100)]  # normalised and checked against config in the routes
 
 
 class Register(Struct, forbid_unknown_fields=True):
@@ -31,6 +32,7 @@ class Register(Struct, forbid_unknown_fields=True):
     password: Password
     name: Name | None = None
     anonymous: bool = False
+    username: Username | None = None  # generated when left out
 
 
 class Login(Struct, forbid_unknown_fields=True):
@@ -52,6 +54,10 @@ class CodeEntry(Struct, forbid_unknown_fields=True):
 class ChangePassword(Struct, forbid_unknown_fields=True):
     current_password: Password
     new_password: Password
+
+
+class ChangeUsername(Struct, forbid_unknown_fields=True):
+    username: Username
 
 
 class Message(Struct):

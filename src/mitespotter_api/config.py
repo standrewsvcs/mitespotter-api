@@ -192,7 +192,11 @@ class Config:
     google_flow_cookie_name: str = "mitespotter_google"
     google_flow_lifetime: timedelta = timedelta(minutes=10)
 
-    # Usernames: "<adjective> <noun>", plus a number if taken
+    # Usernames: chosen, or generated as "<adjective> <noun>" ("<adjective> <adjective> <noun>" if pairs collide)
+    username_min_length: int = 3
+    username_max_length: int = 30
+    username_pattern: str = r"^[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?$"
+    username_generation_attempts: int = 10
     username_adjectives: tuple[str, ...] = (
         "amber", "bold", "bright", "brisk", "buzzy", "calm", "clever", "curious",
         "dapper", "deft", "eager", "fleet", "fuzzy", "gentle", "golden", "hardy",

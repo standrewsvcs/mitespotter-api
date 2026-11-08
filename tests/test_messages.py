@@ -37,9 +37,13 @@ def test_every_code_email_has_a_template():
     assert set(TEMPLATES) <= set(messages.keys())
 
 
-@pytest.mark.parametrize("kind", ["register", "register_existing", "recover"])
-def test_code_emails_say_what_to_do_if_it_was_not_you(kind):
-    assert "Ignore this email" in getattr(messages, f"email_{kind}_body")
+@pytest.mark.parametrize(("kind", "advice"), [
+    ("register", "Didn't sign up? Ignore this email."),  # no account, no password yet
+    ("register_existing", "Didn't ask for this? Change your password."),
+    ("recover", "Didn't ask for this? Change your password."),
+])
+def test_code_emails_say_what_to_do_if_it_was_not_you(kind, advice):
+    assert getattr(messages, f"email_{kind}_body").endswith(advice)
 
 
 @pytest.mark.parametrize("key", messages.keys())
@@ -74,6 +78,10 @@ def test_redirect_message_keys_exist():
 
 def test_password_message_matches_the_minimum():
     assert str(config.password_min_length) in messages.password_too_short
+
+
+def test_username_message_matches_the_limits():
+    assert f"{config.username_min_length} to {config.username_max_length}" in messages.username_invalid
 
 
 def test_unknown_key_raises():

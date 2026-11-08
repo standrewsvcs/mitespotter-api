@@ -221,6 +221,7 @@ class EmailCode(DefaultBase):
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     password_hash: Mapped[str | None] = mapped_column(Text)  # the password chosen at registration or recovery
     name: Mapped[str | None] = mapped_column(Text)  # registration details, applied when the code is entered
+    username: Mapped[str | None] = mapped_column(CITEXT)
     anonymous: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = _timestamptz(now=True)
     expires_at: Mapped[datetime] = _timestamptz()
