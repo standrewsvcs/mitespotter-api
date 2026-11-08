@@ -67,7 +67,7 @@ def test_downgrade_to_base_and_back(database_factory):
 
     commands.upgrade("head")
     commands.downgrade("base")
-    for table in ("categories", "users", "images", "annotations", "reports", "user_sessions", "account_tokens"):
+    for table in ("categories", "users", "images", "annotations", "reports", "user_sessions", "email_codes"):
         assert _query(url, f"SELECT to_regclass('{table}')") == [(None,)]
     assert _query(url, "SELECT 1 FROM pg_extension WHERE extname = 'citext'") == []
 
@@ -81,6 +81,26 @@ def test_offline_mode_renders_sql_without_a_database(capsys):
     sql = capsys.readouterr().out
     assert "CREATE EXTENSION IF NOT EXISTS citext" in sql
     assert "CREATE TABLE categories" in sql
-    assert "CREATE UNIQUE INDEX uq_account_tokens_open ON account_tokens (user_id, purpose) WHERE used_at IS NULL" in sql
+    assert "CREATE UNIQUE INDEX uq_email_codes_open ON email_codes (email, purpose) WHERE used_at IS NULL" in sql
     assert "CREATE UNIQUE INDEX uq_reports_open ON reports (reporter_id, image_id) WHERE resolved_at IS NULL" in sql
     assert "INSERT INTO alembic_version" in sql
+
+
+def test_migrations_match_create_all(database_factory, database_url):
+    """Autogenerate misses CHECK constraints changed on existing tables, so compare whole catalogs:
+    a database built from the models and one built from the revisions must be identical."""
+    from sqlalchemy import create_engine, text
+
+    from mitespotter_api.models import Category
+    from test_schema import _catalog
+
+    url = database_factory()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS citext"))
+            Category.metadata.create_all(conn)
+    finally:
+        engine.dispose()
+
+    assert _catalog(url) == _catalog(database_url)

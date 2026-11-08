@@ -37,6 +37,12 @@ CONFIG_ENV_VARS = (
     "MITESPOTTER_R2_ACCESS_KEY_ID",
     "MITESPOTTER_R2_SECRET_ACCESS_KEY",
     "MITESPOTTER_PUBLIC_DATA_URL",
+    "MITESPOTTER_PUBLIC_URL",
+    "MITESPOTTER_GOOGLE_CLIENT_SECRET",
+    "MITESPOTTER_GOOGLE_CLIENT_ID",
+    "MITESPOTTER_EMAIL_FROM",
+    "MITESPOTTER_RESEND_API_KEY",
+    "MITESPOTTER_MAILER",
 )
 
 
@@ -74,6 +80,9 @@ def load_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, required_env: d
 
 # MARK: Environments
 
+PROD_ENV = {"MITESPOTTER_ENV": "prod", "MITESPOTTER_SECRET_KEY": "s3cret", "MITESPOTTER_RESEND_API_KEY": "re_test"}
+
+
 
 def test_dev_defaults(load_config):
     config = load_config()
@@ -97,7 +106,7 @@ def test_test_environment_defaults(load_config):
 
 
 def test_prod_environment_defaults(load_config):
-    config = load_config(MITESPOTTER_ENV="prod", MITESPOTTER_SECRET_KEY="s3cret")
+    config = load_config(**PROD_ENV)
 
     assert config.is_production is True
     assert config.is_test is False
@@ -161,7 +170,7 @@ def test_prod_without_secret_key_is_rejected(load_config):
 
 
 def test_prod_with_secret_key(load_config):
-    assert load_config(MITESPOTTER_ENV="prod", MITESPOTTER_SECRET_KEY="s3cret").secret_key == "s3cret"
+    assert load_config(**PROD_ENV).secret_key == "s3cret"
 
 
 # MARK: Database
@@ -313,8 +322,7 @@ def test_config_from_an_explicit_mapping_ignores_os_environ(load_config, tmp_pat
     config = load_config(MITESPOTTER_PORT="9000")
     config = type(config).from_env({
         "MITESPOTTER_DATABASE_URL": "postgresql+psycopg://x/y",
-        "MITESPOTTER_ENV": "prod",
-        "MITESPOTTER_SECRET_KEY": "s3cret",
+        **PROD_ENV,
         "MITESPOTTER_DATA_DIR": str(tmp_path),
     })
     assert config.port == 6776
@@ -348,3 +356,55 @@ def test_category_by_id_is_read_only(load_config):
         config.category_by_id[3] = config.categories[0]
     with pytest.raises(TypeError):
         config.coco_filenames["train"] = "x.json"
+
+
+# MARK: Mail and Google
+
+def test_mailer_defaults_to_outbox_outside_prod(load_config):
+    config = load_config()
+    assert config.mailer == "outbox"
+    assert config.resend_api_key is None
+
+
+def test_prod_defaults_to_resend(load_config):
+    config = load_config(**PROD_ENV)
+    assert config.mailer == "resend"
+    assert config.resend_api_key == "re_test"
+
+
+def test_prod_refuses_the_outbox(load_config):
+    with pytest.raises(ValueError, match="MITESPOTTER_MAILER must be 'resend'"):
+        load_config(**PROD_ENV, MITESPOTTER_MAILER="outbox")
+
+
+def test_resend_needs_a_key(load_config):
+    with pytest.raises(ValueError, match="MITESPOTTER_RESEND_API_KEY must be set"):
+        load_config(MITESPOTTER_MAILER="resend")
+
+
+def test_unknown_mailer_is_rejected(load_config):
+    with pytest.raises(ValueError, match="MITESPOTTER_MAILER must be one of"):
+        load_config(MITESPOTTER_MAILER="smtp")
+
+
+def test_cookies_are_secure_only_over_https(load_config):
+    assert load_config().cookie_secure is False
+    assert load_config(MITESPOTTER_PUBLIC_URL="https://mitespotter.org/").cookie_secure is True
+
+
+def test_google_is_enabled_by_both_credentials(load_config):
+    assert load_config().google_enabled is False
+    assert load_config(MITESPOTTER_GOOGLE_CLIENT_ID="id").google_enabled is False
+    config = load_config(
+        MITESPOTTER_GOOGLE_CLIENT_ID="id", MITESPOTTER_GOOGLE_CLIENT_SECRET="secret",
+        MITESPOTTER_PUBLIC_URL="https://mitespotter.org",
+    )
+    assert config.google_enabled is True
+    assert config.google_redirect_uri == "https://mitespotter.org/api/auth/google/callback"
+
+
+def test_username_words_are_unique_lowercase_words(load_config):
+    config = load_config()
+    for words in (config.username_adjectives, config.username_nouns):
+        assert len(words) == len(set(words)) >= 32
+        assert all(word.isalpha() and word.islower() for word in words)

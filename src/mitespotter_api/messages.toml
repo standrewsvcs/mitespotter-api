@@ -1,0 +1,31 @@
+# User-facing text. Rules: STYLE.md. Keys are used as `messages.<key>`.
+
+# Sign in and out
+signed_in = "You're signed in."
+signed_out = "You're signed out."
+signed_out_everywhere = "You're signed out everywhere."
+sign_in_required = "Sign in to continue."
+login_failed = "Incorrect email or password."
+
+# Registration and codes
+email_invalid = "Enter a valid email address."
+emails_differ = "Your emails don't match."
+code_sent_register = "We've emailed you your verification code."
+code_sent_recover = "We've emailed you your recovery code."
+code_invalid = "That code is wrong or has expired."
+verify_to_contribute = "Verify your email to contribute."
+
+# Passwords
+password_changed = "Your new password is set."
+password_wrong = "Your current password is incorrect."
+password_too_short = "Your password needs at least 8 characters."
+
+# Google
+google_unavailable = "Google sign-in isn't available right now."
+google_failed = "Google sign-in didn't work. Try again."
+google_linked = "Your Google account is linked."
+google_in_use = "That Google account is linked to another account."
+
+# Emails. Placeholders: {code}, {minutes}
+email_code_subject = "Your Mitespotter code"
+email_code_body = "Your Mitespotter code is {code}. It expires in {minutes} minutes."

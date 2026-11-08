@@ -13,8 +13,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from functools import cache
 from typing import Any
 
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
 
 from advanced_alchemy.base import DefaultBase
 from sqlalchemy import (
@@ -36,7 +40,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import CITEXT
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.elements import conv
 from sqlalchemy.types import TypeDecorator
 
@@ -45,6 +49,28 @@ from .config import config
 
 
 UINT64_MAX = 2**64 - 1
+
+
+# MARK: Passwords
+
+_hasher = PasswordHasher()
+
+
+def hash_password(password: str) -> str:
+    return _hasher.hash(password)
+
+
+@cache
+def _dummy_hash() -> str:
+    return _hasher.hash("mitespotter dummy password")
+
+
+def check_password_hash(password_hash: str | None, password: str) -> bool:
+    """Constant work whether or not there is a hash, so timing reveals nothing"""
+    try:
+        return _hasher.verify(password_hash or _dummy_hash(), password) and password_hash is not None
+    except (VerificationError, InvalidHashError):
+        return False
 
 
 # MARK: Helpers
@@ -105,6 +131,26 @@ class User(DefaultBase):
     anonymous: Mapped[bool] = mapped_column(Boolean, server_default=false())
     is_ai_model: Mapped[bool] = mapped_column(Boolean, server_default=false())
 
+    sessions: Mapped[list[UserSession]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True, lazy="raise",
+    )
+
+    @property
+    def is_registered(self) -> bool:
+        """A verified email and a way to sign in"""
+        return self.email_verified_at is not None and (self.hashed_password is not None or self.google_sub is not None)
+
+    def set_password(self, password: str) -> None:
+        self.hashed_password = hash_password(password)
+
+    def check_password(self, password: str) -> bool:
+        """Check a password; upgrades an outdated hash in place. AI models never use passwords."""
+        if self.is_ai_model or not check_password_hash(self.hashed_password, password):
+            return False
+        if _hasher.check_needs_rehash(self.hashed_password):
+            self.set_password(password)
+        return True
+
 
 class Image(DefaultBase):
     __tablename__ = "images"
@@ -155,24 +201,27 @@ class UserSession(DefaultBase):
     last_seen_at: Mapped[datetime] = _timestamptz(now=True)
     expires_at: Mapped[datetime] = _timestamptz()
 
+    user: Mapped[User] = relationship(back_populates="sessions", lazy="raise")
 
-class AccountToken(DefaultBase):
-    __tablename__ = "account_tokens"
+
+class EmailCode(DefaultBase):
+    """A code emailed to an address; entering it completes a registration or a recovery"""
+    __tablename__ = "email_codes"
     __table_args__ = (
-        CheckConstraint(_in("purpose", config.account_token_purposes), name=conv("ck_account_tokens_purpose")),
-        CheckConstraint("attempts >= 0", name=conv("ck_account_tokens_attempts")),
-        # One open code per user per purpose
-        Index(
-            "uq_account_tokens_open", "user_id", "purpose",
-            unique=True, postgresql_where=text("used_at IS NULL"),
-        ),
+        CheckConstraint(_in("purpose", config.email_code_purposes), name=conv("ck_email_codes_purpose")),
+        CheckConstraint("attempts >= 0", name=conv("ck_email_codes_attempts")),
+        # One open code per address per purpose
+        Index("uq_email_codes_open", "email", "purpose", unique=True, postgresql_where=text("used_at IS NULL")),
     )
 
     id: Mapped[int] = _id()
-    user_id: Mapped[int] = _fk("users.id", "CASCADE", "fk_account_token_user")
+    email: Mapped[str] = mapped_column(CITEXT)
     purpose: Mapped[str] = mapped_column(Text)
     code_hash: Mapped[str] = mapped_column(Text)  # HMAC of the emailed code
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    password_hash: Mapped[str | None] = mapped_column(Text)  # the password chosen at registration or recovery
+    name: Mapped[str | None] = mapped_column(Text)  # registration details, applied when the code is entered
+    anonymous: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = _timestamptz(now=True)
     expires_at: Mapped[datetime] = _timestamptz()
     used_at: Mapped[datetime | None] = _timestamptz(nullable=True)

@@ -116,3 +116,14 @@ def database_url(database_factory: Callable[[], str]) -> str:
     url = database_factory()
     _upgrade(url)
     return url
+
+
+@pytest.fixture(scope="session")
+def migrated_database_factory(database_factory: Callable[[], str]) -> Callable[[], str]:
+    """Fresh databases migrated to head, for tests that commit"""
+    def _create() -> str:
+        url = database_factory()
+        _upgrade(url)
+        return url
+
+    return _create

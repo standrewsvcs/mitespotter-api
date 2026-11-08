@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from mitespotter_api.models import (
     UINT64_MAX,
-    AccountToken,
+    EmailCode,
     Annotation,
     AnnotationEvent,
     Image,
@@ -378,35 +378,33 @@ def test_session_defaults_and_unique_hash(session):
               constraint="uq_user_sessions_token_hash")
 
 
-def _code(user: User, purpose: str = "recover", **kwargs) -> AccountToken:
-    return AccountToken(user_id=user.id, purpose=purpose, code_hash="c" * 64, expires_at=NOW, **kwargs)
+def _code(email: str = "nolan@example.org", purpose: str = "recover", **kwargs) -> EmailCode:
+    return EmailCode(email=email, purpose=purpose, code_hash="c" * 64, expires_at=NOW, **kwargs)
 
 
-def test_account_token_checks(session):
-    user = _user(session)
-    _rejected(session, _code(user, purpose="login"), constraint="ck_account_tokens_purpose")
-    _rejected(session, _code(user, attempts=-1), constraint="ck_account_tokens_attempts")
+def test_email_code_checks(session):
+    _rejected(session, _code(purpose="login"), constraint="ck_email_codes_purpose")
+    _rejected(session, _code(attempts=-1), constraint="ck_email_codes_attempts")
 
 
-def test_account_token_attempts_default_to_zero(session):
-    user = _user(session)
-    code = _code(user)
+def test_email_code_defaults(session):
+    code = _code(purpose="register", password_hash="h", name="Nolan", anonymous=True)
     session.add(code)
     session.flush()
     session.refresh(code)
     assert code.attempts == 0
+    assert code.used_at is None
 
 
-def test_one_open_code_per_user_per_purpose(session):
-    user = _user(session)
-    first = _code(user)
-    session.add_all([first, _code(user, purpose="verify")])
+def test_one_open_code_per_address_per_purpose(session):
+    first = _code()
+    session.add_all([first, _code(purpose="register")])
     session.flush()
-    _rejected(session, _code(user), constraint="uq_account_tokens_open")
+    _rejected(session, _code(email="NOLAN@example.org"), constraint="uq_email_codes_open")
 
     first.used_at = NOW
     session.flush()
-    session.add(_code(user))
+    session.add(_code())
     session.flush()
 
 
@@ -415,15 +413,9 @@ def test_google_subject_is_unique(session):
     _rejected(session, User(username="b", google_sub="1234567890"), constraint="uq_users_google_sub")
 
 
-def test_deleting_a_user_removes_their_sessions_and_tokens(session):
+def test_deleting_a_user_removes_their_sessions(session):
     user = _user(session)
-    session.add_all([
-        UserSession(user_id=user.id, token_hash="s" * 64, expires_at=NOW),
-        _code(user, purpose="verify"),
-    ])
+    session.add(UserSession(user_id=user.id, token_hash="s" * 64, expires_at=NOW))
     session.flush()
     session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user.id})
-    counts = session.execute(text(
-        "SELECT (SELECT count(*) FROM user_sessions), (SELECT count(*) FROM account_tokens)"
-    )).one()
-    assert tuple(counts) == (0, 0)
+    assert session.scalar(text("SELECT count(*) FROM user_sessions")) == 0

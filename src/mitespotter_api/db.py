@@ -37,7 +37,7 @@ def make_alchemy_config(config: Config) -> SQLAlchemyAsyncConfig:
             # Sessions run in UTC, so every timestamptz (e.g. DEFAULT now()) is read back in UTC
             connect_args={"options": "-c timezone=UTC"},
         ),
-        before_send_handler="autocommit",
+        before_send_handler="autocommit_include_redirects",  # sign-in redirects (Google) commit too
         session_dependency_key=config.session_dependency_key,
         create_all=False,
         alembic_config=AlembicAsyncConfig(
