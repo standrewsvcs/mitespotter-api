@@ -192,7 +192,15 @@ class Config:
     google_flow_cookie_name: str = "mitespotter_google"
     google_flow_lifetime: timedelta = timedelta(minutes=10)
 
-    # Usernames: chosen, or two random words drawn from this codebase's own identifiers; not unique
+    # Usernames: chosen, or "<adjective> <word>", the word drawn from this codebase's own identifiers; not unique
+    username_adjectives: tuple[str, ...] = (
+        "amber", "bold", "bright", "brisk", "buzzy", "calm", "clever", "curious",
+        "dapper", "deft", "eager", "fleet", "fuzzy", "gentle", "golden", "hardy",
+        "honeyed", "humble", "jolly", "keen", "kind", "lively", "lucky", "merry",
+        "mellow", "nimble", "patient", "plucky", "quick", "quiet", "rapid", "sharp",
+        "sleek", "spry", "steady", "sunny", "swift", "tidy", "trusty", "vivid",
+        "wary", "warm", "wild", "wise", "zesty", "zippy", "dusky", "sturdy",
+    )
     username_min_length: int = 3
     username_max_length: int = 30
     username_pattern: str = r"^[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?$"
@@ -232,6 +240,10 @@ class Config:
     @property
     def google_redirect_uri(self) -> str:
         return f"{self.public_url}{self.api_prefix}/auth/google/callback"
+
+    def profile_url(self, user_id: int) -> str:
+        """The public profile page you can copy and share"""
+        return f"{self.public_url}/u/{user_id}"
 
     @property
     def alembic_ini(self) -> Path:

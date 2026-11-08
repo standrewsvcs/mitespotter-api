@@ -75,8 +75,8 @@ async def test_entering_the_code_creates_a_verified_account(db):
     assert user.email_verified_at is not None
     assert user.is_registered
     assert user.check_password(PASSWORD)
-    first, second = user.username.split(" ")
-    assert {first, second} <= set(auth_module.usernames.words())
+    adjective, word = user.username.split(" ")
+    assert adjective in config.username_adjectives and word in auth_module.usernames.words()
     assert auth.cookie_value and auth.user_session.token_hash != auth.cookie_value
     auth.require_registered()
 
@@ -450,7 +450,7 @@ async def test_each_path_sends_its_own_email(db):
 
     existing = await register(db, "kate@example.org", "another password", "Someone", False)
     assert existing.subject == messages.email_register_existing_subject
-    assert "signs you in with the password you just chose" in existing.text
+    assert "replaces your password with the one chosen at sign-up" in existing.text
 
     recovery = await request_recovery(db, "kate@example.org", "yet another password")
     assert recovery.subject == messages.email_recover_subject

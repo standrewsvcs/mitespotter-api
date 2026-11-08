@@ -68,7 +68,7 @@ def _check_credit(name: str | None, anonymous: bool) -> None:
 
 
 async def _create_user(db: AsyncSession, username: str | None = None, **fields) -> User:
-    """The chosen username, else two random words from the codebase; usernames may be shared"""
+    """The chosen username, else an adjective and a codebase word; usernames may be shared"""
     user = User(username=username or usernames.generate(), **fields)
     db.add(user)
     await db.flush()

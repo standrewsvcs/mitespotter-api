@@ -124,9 +124,11 @@ def _code_sent(message: str, mailer: Mailer, email: Email | None) -> Response[Me
 # MARK: Handlers
 
 @get("/me")
-async def me(auth: NamedDependency[Auth]) -> Me:
+async def me(auth: NamedDependency[Auth], config: NamedDependency[Config]) -> Me:
     user = auth.user
     return Me(
+        id=user.id,
+        profile_url=config.profile_url(user.id),
         username=user.username,
         name=user.name,
         email=user.email,
@@ -274,8 +276,5 @@ router = Router(
     middleware=[RateLimitConfig(rate_limit=app_config.auth_rate_limit, identifier_for_request=client_ip).middleware],
     dependencies={
         "auth": Provide(provide_auth),
-        "config": Provide(provide_config, sync_to_thread=False),
-        "mailer": Provide(provide_mailer, sync_to_thread=False),
-        "google": Provide(provide_google, sync_to_thread=False),
     },
 )

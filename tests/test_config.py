@@ -409,3 +409,5 @@ def test_username_limits(load_config):
     assert 0 < shortest <= longest
     assert config.username_min_length <= config.username_max_length
     assert all(word.islower() for word in config.username_stopwords)
+    assert len(config.username_adjectives) == len(set(config.username_adjectives)) >= 32
+    assert all(word.isalpha() and word.islower() for word in config.username_adjectives)

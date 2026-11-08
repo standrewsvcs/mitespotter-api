@@ -15,11 +15,11 @@ from mitespotter_api import usernames
 from mitespotter_api.config import config
 
 
-def test_generated_usernames_are_two_different_words_from_the_pool():
+def test_generated_usernames_are_an_adjective_and_a_codebase_word():
     pool = set(usernames.words())
     for seed in range(50):
-        first, second = usernames.generate(random.Random(seed)).split(" ")
-        assert first != second and {first, second} <= pool
+        adjective, word = usernames.generate(random.Random(seed)).split(" ")
+        assert adjective in config.username_adjectives and word in pool
 
 
 def test_generated_usernames_are_random():

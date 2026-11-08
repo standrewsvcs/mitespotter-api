@@ -67,7 +67,17 @@ class Message(Struct):
     message: str
 
 
+class PublicProfile(Struct):
+    """What other people see"""
+    id: int
+    username: str
+    name: str | None  # None when anonymous
+    url: str
+
+
 class Me(Struct):
+    id: int
+    profile_url: str
     username: str
     name: str | None
     email: str | None

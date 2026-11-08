@@ -1,6 +1,6 @@
 """
 src/mitespotter_api/usernames.py
-Usernames: chosen, or two random words drawn from this codebase ("flush pyramid")
+Usernames: chosen, or a friendly adjective and a word from this codebase ("nimble pyramids")
 
 Usernames are display names, not identifiers: several people may share one.
 The word pool is every identifier in the package's own source, split on
@@ -64,6 +64,5 @@ def words() -> tuple[str, ...]:
 
 
 def generate(rng: random.Random = _SYSTEM_RANDOM) -> str:
-    """Two different random words from the pool"""
-    first, second = rng.sample(words(), 2)
-    return f"{first} {second}"
+    """A random adjective from config, then a random word from the codebase"""
+    return f"{rng.choice(config.username_adjectives)} {rng.choice(words())}"

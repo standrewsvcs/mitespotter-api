@@ -39,8 +39,8 @@ def test_every_code_email_has_a_template():
 
 @pytest.mark.parametrize(("kind", "advice"), [
     ("register", "Didn't sign up? Ignore this email."),  # no account, no password yet
-    ("register_existing", "Didn't ask for this? Change your password."),
-    ("recover", "Didn't ask for this? Change your password."),
+    ("register_existing", "Didn't ask for this? Someone might be trying to guess your password."),
+    ("recover", "Didn't ask for this? Someone might be trying to guess your password."),
 ])
 def test_code_emails_say_what_to_do_if_it_was_not_you(kind, advice):
     assert getattr(messages, f"email_{kind}_body").endswith(advice)

@@ -12,6 +12,7 @@ from advanced_alchemy.extensions.litestar import SQLAlchemyPlugin
 from litestar import Litestar, Request, Response, Router
 from litestar.config.csrf import CSRFConfig
 from litestar.datastructures import State
+from litestar.di import Provide
 from litestar.exceptions import PermissionDeniedException
 from litestar.openapi import OpenAPIConfig
 
@@ -22,7 +23,8 @@ from .db import make_alchemy_config
 from .google import Google
 from .mail import make_mailer
 from .messages import messages
-from .routes import auth, health
+from .routes import auth, health, users
+from .routes.auth import provide_config, provide_google, provide_mailer
 
 
 CSRF_FAILURE = "CSRF token verification failed"  # Litestar's own wording
@@ -36,7 +38,15 @@ def permission_denied(request: Request, exc: PermissionDeniedException) -> Respo
 
 def create_app(config: Config | None = None) -> Litestar:
     config = config or config_module.config
-    api = Router(path=config.api_prefix, route_handlers=[health.router, auth.router])
+    api = Router(
+        path=config.api_prefix,
+        route_handlers=[health.router, auth.router, users.router],
+        dependencies={
+            "config": Provide(provide_config, sync_to_thread=False),
+            "mailer": Provide(provide_mailer, sync_to_thread=False),
+            "google": Provide(provide_google, sync_to_thread=False),
+        },
+    )
     return Litestar(
         route_handlers=[api],
         plugins=[SQLAlchemyPlugin(config=make_alchemy_config(config))],
