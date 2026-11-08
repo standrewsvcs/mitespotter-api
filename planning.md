@@ -721,6 +721,9 @@ POST   /api/auth/profile               # name, username, anonymous
 # users
 GET    /api/users/{id}                 # public profile: username, name unless anonymous, link
 
+# dev
+GET    /api/dev                        # developer test page (only when MITESPOTTER_DEV_PAGE is on; off before launch)
+
 # images
 POST   /api/images                     # upload; 409 on duplicate
 GET    /api/images?status=&split=&page=
