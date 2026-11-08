@@ -489,7 +489,7 @@ You need an account to contribute, for credit; tick `anonymous` to hide your nam
   - Otherwise: a new account, verified, without a password.
 - **Usernames.** Generated from the id: an adjective and a noun picked by a generator seeded with the id (`nimble longstepper`); the lowest free number is appended if the pair is taken (`buzzy finder 1`).
 - **Sign in.** "Incorrect email or password." for any failure. Unknown emails are checked against a dummy hash. Outdated hashes are upgraded on sign-in. AI models never use passwords.
-- **Codes.** 6 digits, emailed through Resend, valid 15 minutes, 5 attempts, single use, one open code per address and purpose, at most one email a minute. Stored as an HMAC keyed with the secret key, in `email_codes`, with the password and details they apply.
+- **Codes.** Each email says what its code does (verify, sign in with the new password, or recover) and to ignore it if you didn't ask. 6 digits, emailed through Resend, valid 15 minutes, 5 attempts, single use, one open code per address and purpose, at most one email a minute. Stored as an HMAC keyed with the secret key, in `email_codes`, with the password and details they apply.
 - **Recovery, one screen.** Enter your email and a new password: "We've emailed you your recovery code." Enter the code: you're signed in with the new password and your other sessions end. Unknown addresses get the same response and no email.
 - **Change password.** Needs your current password; ends your other sessions.
 - **Rate limits.** Every `/api/auth` request, per client IP (`CF-Connecting-IP`).
@@ -602,6 +602,7 @@ Use `systemd`, ensure all configurations are committed, symlink into box from `d
   - See [Archive Directory Layout](#archive-directory-layout)
   - Upload the zip to R2 `datasets/`
   - Delete last week's snapshot of this day (keep 7)
+- Delete expired sessions, and email codes a day after use or expiry: `uv run python -m mitespotter_api.jobs cleanup`
 - Digest and heartbeat
   - Summarise the day's activity (images ingested, images verified, backlog size, per-split counts), integrity failures, whether a snapshot was written, open report count and age of the oldest
   - Check for orphans in storage --- files not in the database, database rows not on file, and flag them (the latter will have caused an integrity failure)

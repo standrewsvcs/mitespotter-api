@@ -127,3 +127,17 @@ def migrated_database_factory(database_factory: Callable[[], str]) -> Callable[[
         return url
 
     return _create
+
+
+@pytest.fixture
+async def db(database_url):
+    """A session whose work is rolled back after the test (commits become savepoints)"""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    engine = create_async_engine(database_url, connect_args={"options": "-c timezone=UTC"})
+    async with engine.connect() as conn:
+        transaction = await conn.begin()
+        async with AsyncSession(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False) as session:
+            yield session
+        await transaction.rollback()
+    await engine.dispose()

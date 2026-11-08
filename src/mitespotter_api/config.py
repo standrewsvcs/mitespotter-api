@@ -180,6 +180,7 @@ class Config:
     code_lifetime: timedelta = timedelta(minutes=15)
     code_attempts: int = 5
     code_resend_interval: timedelta = timedelta(minutes=1)
+    code_retention: timedelta = timedelta(days=1)  # used or expired codes are deleted after this
     resend_api_url: str = "https://api.resend.com/emails"
 
     # Google (OpenID Connect)
@@ -344,4 +345,3 @@ class Config:
 config = Config.from_env()
 
 
-# TODO (jobs): unused until jobs/nightly.py & jobs/weekly.py are implemented

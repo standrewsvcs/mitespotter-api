@@ -26,6 +26,13 @@ google_failed = "Google sign-in didn't work. Try again."
 google_linked = "Your Google account is linked."
 google_in_use = "That Google account is linked to another account."
 
-# Emails. Placeholders: {code}, {minutes}
-email_code_subject = "Your Mitespotter code"
-email_code_body = "Your Mitespotter code is {code}. It expires in {minutes} minutes."
+# Emails, seen only by the address's owner. Placeholders: {code}, {minutes}
+email_register_subject = "Your Mitespotter verification code"
+email_register_body = "Your verification code is {code}. It expires in {minutes} minutes. Didn't sign up? Ignore this email."
+email_register_existing_subject = "Your Mitespotter sign-in code"
+email_register_existing_body = "Your code is {code}. Entering it signs you in with the password you just chose. It expires in {minutes} minutes. Didn't ask for this? Ignore this email and your password stays the same."
+email_recover_subject = "Your Mitespotter recovery code"
+email_recover_body = "Your recovery code is {code}. It expires in {minutes} minutes. Didn't ask for this? Ignore this email and your password stays the same."
+
+# Requests
+request_expired = "Refresh the page and try again."

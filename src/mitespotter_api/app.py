@@ -9,9 +9,10 @@ from __future__ import annotations
 
 
 from advanced_alchemy.extensions.litestar import SQLAlchemyPlugin
-from litestar import Litestar, Router
+from litestar import Litestar, Request, Response, Router
 from litestar.config.csrf import CSRFConfig
 from litestar.datastructures import State
+from litestar.exceptions import PermissionDeniedException
 from litestar.openapi import OpenAPIConfig
 
 
@@ -20,7 +21,17 @@ from .config import Config
 from .db import make_alchemy_config
 from .google import Google
 from .mail import make_mailer
+from .messages import messages
 from .routes import auth, health
+
+
+CSRF_FAILURE = "CSRF token verification failed"  # Litestar's own wording
+
+
+def permission_denied(request: Request, exc: PermissionDeniedException) -> Response:
+    """Litestar's default 403 body, with its CSRF failure reworded for users (STYLE.md)"""
+    detail = messages.request_expired if exc.detail == CSRF_FAILURE else exc.detail
+    return Response({"status_code": exc.status_code, "detail": detail}, status_code=exc.status_code)
 
 
 def create_app(config: Config | None = None) -> Litestar:
@@ -37,6 +48,7 @@ def create_app(config: Config | None = None) -> Litestar:
             cookie_secure=config.cookie_secure,
             cookie_samesite="lax",
         ),
+        exception_handlers={PermissionDeniedException: permission_denied},
         openapi_config=OpenAPIConfig(
             title=config.api_title,
             version=config.api_version,

@@ -80,10 +80,16 @@ def make_mailer(config: Config) -> Mailer:
     return OutboxMailer()
 
 
-def code_email(to: str, code: str, config: Config) -> Email:
+CODE_EMAILS = ("register", "register_existing", "recover")
+
+
+def code_email(to: str, code: str, config: Config, kind: str) -> Email:
+    """kind: "register" (new address), "register_existing" (signs in with the new password) or "recover" """
+    if kind not in CODE_EMAILS:
+        raise ValueError(f"Unknown code email {kind!r}")
     minutes = int(config.code_lifetime.total_seconds() // 60)
     return Email(
         to=to,
-        subject=messages.email_code_subject,
-        text=messages.email_code_body.format(code=code, minutes=minutes),
+        subject=getattr(messages, f"email_{kind}_subject"),
+        text=getattr(messages, f"email_{kind}_body").format(code=code, minutes=minutes),
     )

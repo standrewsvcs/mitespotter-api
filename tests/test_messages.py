@@ -20,12 +20,26 @@ from mitespotter_api.messages import Messages, messages
 
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "mitespotter_api"
-TEMPLATES = {"email_code_subject": set(), "email_code_body": {"code", "minutes"}}
+TEMPLATES = {
+    f"email_{kind}_{part}": ({"code", "minutes"} if part == "body" else set())
+    for kind in ("register", "register_existing", "recover") for part in ("subject", "body")
+}
 NARRATION = ("will be", "if an account", "if your account", "an email has been", "token", "session", "authenticat", "!")
 
 
 def _placeholders(text: str) -> set[str]:
     return {name for _, name, _, _ in string.Formatter().parse(text) if name}
+
+
+def test_every_code_email_has_a_template():
+    from mitespotter_api.mail import CODE_EMAILS
+    assert {f"email_{kind}_{part}" for kind in CODE_EMAILS for part in ("subject", "body")} == set(TEMPLATES)
+    assert set(TEMPLATES) <= set(messages.keys())
+
+
+@pytest.mark.parametrize("kind", ["register", "register_existing", "recover"])
+def test_code_emails_say_what_to_do_if_it_was_not_you(kind):
+    assert "Ignore this email" in getattr(messages, f"email_{kind}_body")
 
 
 @pytest.mark.parametrize("key", messages.keys())
@@ -46,6 +60,7 @@ def test_every_message_used_in_code_exists():
     for path in SRC.rglob("*.py"):
         used |= set(re.findall(r"\bmessages\.([a-z_]+)\b", path.read_text(encoding="utf-8")))
     used -= {"keys", "load", "py", "toml"}  # method names and file names in docstrings
+    used |= set(TEMPLATES)  # looked up by kind in mail.code_email
     assert used, "no messages found in code"
     assert used <= set(messages.keys())
 

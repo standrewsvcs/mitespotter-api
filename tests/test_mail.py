@@ -90,10 +90,17 @@ def test_make_mailer(make_config):
     assert mailer.api_key == "re_x"
 
 
-def test_code_email(make_config):
-    email = code_email("laurie@example.org", "004217", make_config())
-    assert email == Email(
-        to="laurie@example.org",
-        subject="Your Mitespotter code",
-        text="Your Mitespotter code is 004217. It expires in 15 minutes.",
-    )
+@pytest.mark.parametrize(("kind", "subject"), [
+    ("register", "Your Mitespotter verification code"),
+    ("register_existing", "Your Mitespotter sign-in code"),
+    ("recover", "Your Mitespotter recovery code"),
+])
+def test_code_emails(make_config, kind, subject):
+    email = code_email("laurie@example.org", "004217", make_config(), kind)
+    assert (email.to, email.subject) == ("laurie@example.org", subject)
+    assert "004217" in email.text and "15 minutes" in email.text
+
+
+def test_unknown_code_email(make_config):
+    with pytest.raises(ValueError, match="Unknown code email"):
+        code_email("a@example.org", "1", make_config(), "welcome")

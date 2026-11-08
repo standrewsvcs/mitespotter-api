@@ -18,6 +18,7 @@ import pytest
 from argon2 import PasswordHasher
 from litestar.exceptions import ClientException, NotAuthorizedException, PermissionDeniedException
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import selectinload
 
@@ -31,18 +32,6 @@ from mitespotter_api.models import EmailCode, User, UserSession, hash_password
 
 
 PASSWORD = "correct horse battery"
-
-
-@pytest.fixture
-async def db(database_url):
-    """A session whose work is rolled back after the test (commits become savepoints)"""
-    engine = create_async_engine(database_url, connect_args={"options": "-c timezone=UTC"})
-    async with engine.connect() as conn:
-        transaction = await conn.begin()
-        async with AsyncSession(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False) as session:
-            yield session
-        await transaction.rollback()
-    await engine.dispose()
 
 
 def _code_of(email: Email) -> str:
@@ -410,3 +399,51 @@ def test_check_password_without_a_hash():
 
 def test_corrupt_hashes_fail_closed():
     assert User(username="x", hashed_password="not-a-hash").check_password(PASSWORD) is False
+
+
+# MARK: Username race
+
+async def test_a_username_taken_meanwhile_is_retried_with_the_next_number(db, monkeypatch):
+    real_generate = auth_module.usernames.generate
+    monkeypatch.setattr(auth_module.usernames, "base", lambda user_id: "plucky scout")
+    await _account(db, "first@example.org")  # takes "plucky scout"
+    calls = []
+
+    def generate_blind_to_the_first_lookup(user_id, taken):
+        calls.append(set(taken))
+        return real_generate(user_id, set() if len(calls) == 1 else taken)  # first try collides
+
+    monkeypatch.setattr(auth_module.usernames, "generate", generate_blind_to_the_first_lookup)
+    user = await _account(db, "second@example.org")
+
+    assert user.username == "plucky scout 1"
+    assert len(calls) == 2
+
+
+async def test_other_integrity_errors_are_not_retried(db):
+    await _account(db, "dup@example.org")
+    with pytest.raises(IntegrityError):
+        await auth_module._create_user(db, email="dup@example.org")
+
+
+async def test_username_attempts_run_out(db, monkeypatch):
+    monkeypatch.setattr(auth_module.usernames, "base", lambda user_id: "steady sentry")
+    await _account(db, "taken@example.org")
+    monkeypatch.setattr(auth_module.usernames, "generate", lambda user_id, taken: "steady sentry")
+    with pytest.raises(RuntimeError, match="No free username"):
+        await auth_module._create_user(db, email="next@example.org")
+
+
+# MARK: Which email
+
+async def test_each_path_sends_its_own_email(db):
+    new = await register(db, "kate@example.org", PASSWORD, None, False)
+    assert new.subject == messages.email_register_subject
+    await Auth.from_code(db, "kate@example.org", "register", _code_of(new))
+
+    existing = await register(db, "kate@example.org", "another password", None, False)
+    assert existing.subject == messages.email_register_existing_subject
+    assert "signs you in with the password you just chose" in existing.text
+
+    recovery = await request_recovery(db, "kate@example.org", "yet another password")
+    assert recovery.subject == messages.email_recover_subject

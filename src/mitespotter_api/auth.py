@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 
 from litestar.exceptions import ClientException, NotAuthorizedException, PermissionDeniedException
 from sqlalchemy import delete, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -60,15 +61,37 @@ async def _user_by_email(db: AsyncSession, email: str) -> User | None:
     return await db.scalar(select(User).where(User.email == email.strip()))
 
 
+USERNAME_ATTEMPTS = 5
+
+
+def _violates(error: IntegrityError, constraint: str) -> bool:
+    return getattr(getattr(error.orig, "diag", None), "constraint_name", None) == constraint
+
+
 async def _create_user(db: AsyncSession, **fields) -> User:
-    """Takes the id from the sequence first, so the username can be generated from it"""
+    """Takes the id from the sequence first, so the username can be generated from it.
+
+    Another account may take the same username between the lookup and the insert;
+    the insert then runs again with that name counted as taken.
+    """
     user_id = await db.scalar(text("SELECT nextval(pg_get_serial_sequence('users', 'id'))"))
     name = usernames.base(user_id)
-    taken = await db.scalars(select(User.username).where(or_(User.username == name, User.username.like(f"{name} %"))))
-    user = User(id=user_id, username=usernames.generate(user_id, taken.all()), **fields)
-    db.add(user)
-    await db.flush()
-    return user
+    taken = set(await db.scalars(
+        select(User.username).where(or_(User.username == name, User.username.like(f"{name} %")))
+    ))
+    for _ in range(USERNAME_ATTEMPTS):
+        user = User(id=user_id, username=usernames.generate(user_id, taken), **fields)
+        try:
+            async with db.begin_nested():
+                db.add(user)
+                await db.flush()
+        except IntegrityError as e:
+            if not _violates(e, "uq_users_username"):
+                raise
+            taken.add(user.username)
+            continue
+        return user
+    raise RuntimeError(f"No free username for user {user_id} after {USERNAME_ATTEMPTS} attempts")
 
 
 async def _revoke_sessions(db: AsyncSession, user: User, keep: UserSession | None = None) -> None:
@@ -78,7 +101,7 @@ async def _revoke_sessions(db: AsyncSession, user: User, keep: UserSession | Non
     await db.execute(statement)
 
 
-async def _issue_code(db: AsyncSession, email: str, purpose: str, **details) -> Email | None:
+async def _issue_code(db: AsyncSession, email: str, purpose: str, kind: str, **details) -> Email | None:
     """Store a code with the details it applies; returns the email to send, or None within the resend interval"""
     email = email.strip()
     open_code = await db.scalar(
@@ -104,7 +127,7 @@ async def _issue_code(db: AsyncSession, email: str, purpose: str, **details) -> 
         **details,
     ))
     await db.flush()
-    return code_email(email, code, config)
+    return code_email(email, code, config, kind)
 
 
 # MARK: Unauthenticated steps
@@ -117,7 +140,7 @@ async def register(db: AsyncSession, email: str, password: str, name: str | None
     if user is not None and matched:
         return await Auth._start(db, user)
     return await _issue_code(
-        db, email, "register",
+        db, email, "register", "register" if user is None else "register_existing",
         password_hash=hash_password(password), name=name, anonymous=anonymous,
     )
 
@@ -127,7 +150,7 @@ async def request_recovery(db: AsyncSession, email: str, password: str) -> Email
     password_hash = hash_password(password)  # same work whether or not the address exists
     if await _user_by_email(db, email) is None:
         return None
-    return await _issue_code(db, email, "recover", password_hash=password_hash)
+    return await _issue_code(db, email, "recover", "recover", password_hash=password_hash)
 
 
 # MARK: Auth

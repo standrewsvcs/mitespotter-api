@@ -231,6 +231,16 @@ def test_recovery_checks(client):
 def test_posts_need_the_csrf_header(client):
     response = client.http.post("/api/auth/login", json={"email": "x@example.org", "password": PASSWORD})
     assert response.status_code == 403
+    assert response.json() == {"status_code": 403, "detail": messages.request_expired}
+
+
+def test_other_permission_errors_keep_their_message():
+    from litestar.exceptions import PermissionDeniedException
+
+    from mitespotter_api.app import permission_denied
+
+    response = permission_denied(None, PermissionDeniedException(messages.verify_to_contribute))
+    assert (response.status_code, response.content["detail"]) == (403, messages.verify_to_contribute)
 
 
 def test_auth_routes_are_rate_limited_per_client_ip(client):
