@@ -119,10 +119,14 @@ _AREA = Computed("bbox_width * bbox_height", persisted=True)
 
 class User(DefaultBase):
     __tablename__ = "users"
+    __table_args__ = (
+        # Credit: a name unless anonymous
+        CheckConstraint("anonymous OR name IS NOT NULL", name=conv("ck_users_credit")),
+    )
 
     id: Mapped[int] = _id()
     name: Mapped[str | None] = mapped_column(Text)
-    username: Mapped[str] = mapped_column(CITEXT, unique=True)  # auto-generated from id, distinguishes anonymous users
+    username: Mapped[str] = mapped_column(Text)  # display name, not unique; shown instead of name when anonymous
     email: Mapped[str | None] = mapped_column(CITEXT, unique=True)
     hashed_password: Mapped[str | None] = mapped_column(Text)
     google_sub: Mapped[str | None] = mapped_column(Text, unique=True)  # OpenID Connect subject
@@ -221,7 +225,7 @@ class EmailCode(DefaultBase):
     attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     password_hash: Mapped[str | None] = mapped_column(Text)  # the password chosen at registration or recovery
     name: Mapped[str | None] = mapped_column(Text)  # registration details, applied when the code is entered
-    username: Mapped[str | None] = mapped_column(CITEXT)
+    username: Mapped[str | None] = mapped_column(Text)
     anonymous: Mapped[bool | None] = mapped_column(Boolean)
     created_at: Mapped[datetime] = _timestamptz(now=True)
     expires_at: Mapped[datetime] = _timestamptz()

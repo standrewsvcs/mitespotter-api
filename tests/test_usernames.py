@@ -9,30 +9,36 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 import random
-import re
-
 import pytest
 
 from mitespotter_api import usernames
 from mitespotter_api.config import config
 
 
-def test_candidates_are_word_pairs_then_triples_without_numbers():
-    names = list(usernames.candidates(random.Random(1)))
-    n = config.username_generation_attempts
-    assert len(names) == 2 * n
-    for name in names[:n]:
-        adjective, noun = name.split(" ")
-        assert adjective in config.username_adjectives and noun in config.username_nouns
-    for name in names[n:]:
-        first, second, noun = name.split(" ")
-        assert first != second
-        assert {first, second} <= set(config.username_adjectives) and noun in config.username_nouns
-    assert not any(re.search(r"\d", name) for name in names)
+def test_generated_usernames_are_two_different_words_from_the_pool():
+    pool = set(usernames.words())
+    for seed in range(50):
+        first, second = usernames.generate(random.Random(seed)).split(" ")
+        assert first != second and {first, second} <= pool
 
 
-def test_candidates_are_random_not_derived_from_anything():
-    assert len({next(usernames.candidates()) for _ in range(50)}) > 25
+def test_generated_usernames_are_random():
+    assert len({usernames.generate() for _ in range(50)}) > 40
+
+
+def test_the_pool_comes_from_the_codebase():
+    pool = usernames.words()
+    assert len(pool) > 200
+    assert list(pool) == sorted(set(pool))
+    assert {"pyramids", "annotation", "phash", "hive"} <= set(pool)
+    shortest, longest = config.username_word_lengths
+    assert all(w.isalpha() and w.islower() and shortest <= len(w) <= longest for w in pool)
+    assert not set(pool) & set(config.username_stopwords)
+
+
+def test_words_in_splits_identifiers_and_drops_keywords_builtins_and_stopwords():
+    source = "def flush_pyramid(session_token):\n    return len(Image) or None  # comment_words\n"
+    assert usernames.words_in(source) == {"flush", "pyramid"}
 
 
 @pytest.mark.parametrize(("raw", "normalised"), [

@@ -111,7 +111,7 @@ def _rejected(session: Session, *objects, constraint: str) -> None:
 
 
 def _user(session: Session, username: str = "user_1", **kwargs) -> User:
-    user = User(username=username, **kwargs)
+    user = User(username=username, **{"name": "Test User", **kwargs})
     session.add(user)
     session.flush()
     return user
@@ -155,15 +155,20 @@ def test_user_defaults(session):
     assert user.created_at.tzinfo is not None
 
 
-def test_username_and_email_are_case_insensitively_unique(session):
+def test_emails_are_case_insensitively_unique_but_usernames_may_be_shared(session):
     _user(session, "Hilda", email="hilda@example.org")
-    _rejected(session, User(username="hilda"), constraint="uq_users_username")
-    _rejected(session, User(username="other", email="HILDA@example.org"), constraint="uq_users_email")
+    _user(session, "Hilda", email="another.hilda@example.org")
+    _rejected(session, User(username="other", name="O", email="HILDA@example.org"), constraint="uq_users_email")
 
 
-def test_username_lookup_is_case_insensitive(session):
-    _user(session, "Nolan")
-    assert session.scalar(select(User.username).where(User.username == "NOLAN")) == "Nolan"
+def test_a_name_is_required_unless_anonymous(session):
+    _rejected(session, User(username="nameless"), constraint="ck_users_credit")
+    _user(session, "quiet", name=None, anonymous=True)
+
+
+def test_email_lookup_is_case_insensitive(session):
+    _user(session, "Nolan", email="Nolan@Example.org")
+    assert session.scalar(select(User.username).where(User.email == "NOLAN@example.org")) == "Nolan"
 
 
 def test_mailing_survives_user_deletion(session):
@@ -410,7 +415,7 @@ def test_one_open_code_per_address_per_purpose(session):
 
 def test_google_subject_is_unique(session):
     _user(session, "a", google_sub="1234567890")
-    _rejected(session, User(username="b", google_sub="1234567890"), constraint="uq_users_google_sub")
+    _rejected(session, User(username="b", name="B", google_sub="1234567890"), constraint="uq_users_google_sub")
 
 
 def test_deleting_a_user_removes_their_sessions(session):

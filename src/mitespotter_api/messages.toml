@@ -22,8 +22,8 @@ password_too_short = "Your password needs at least 8 characters."
 
 # Usernames
 username_invalid = "Your username needs 3 to 30 letters, numbers, spaces, dots, dashes or underscores."
-username_taken = "That username is taken."
-username_changed = "Your new username is set."
+name_required = "Add your name to be credited, or tick anonymous."
+profile_saved = "Your profile is saved."
 
 # Google
 google_unavailable = "Google sign-in isn't available right now."

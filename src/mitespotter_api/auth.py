@@ -22,7 +22,6 @@ from datetime import UTC, datetime
 
 from litestar.exceptions import ClientException, NotAuthorizedException, PermissionDeniedException
 from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -36,6 +35,7 @@ from . import usernames
 
 
 _KEY = object()
+_UNSET = object()
 
 
 # MARK: Helpers
@@ -61,34 +61,18 @@ async def _user_by_email(db: AsyncSession, email: str) -> User | None:
     return await db.scalar(select(User).where(User.email == email.strip()))
 
 
-def _violates(error: IntegrityError, constraint: str) -> bool:
-    return getattr(getattr(error.orig, "diag", None), "constraint_name", None) == constraint
-
-
-async def username_taken(db: AsyncSession, username: str, by_other_than: User | None = None) -> bool:
-    statement = select(User.id).where(User.username == username)
-    if by_other_than is not None:
-        statement = statement.where(User.id != by_other_than.id)
-    return await db.scalar(statement) is not None
+def _check_credit(name: str | None, anonymous: bool) -> None:
+    """A name is needed for credit unless anonymous"""
+    if not anonymous and not name:
+        raise ClientException(messages.name_required)
 
 
 async def _create_user(db: AsyncSession, username: str | None = None, **fields) -> User:
-    """The chosen username, else a generated one. A name taken meanwhile (another
-    account, or the unique index losing a race) moves on to the next candidate."""
-    for candidate in ([username] if username else []) + list(usernames.candidates()):
-        if await username_taken(db, candidate):
-            continue
-        user = User(username=candidate, **fields)
-        try:
-            async with db.begin_nested():
-                db.add(user)
-                await db.flush()
-        except IntegrityError as e:
-            if not _violates(e, "uq_users_username"):
-                raise
-            continue
-        return user
-    raise RuntimeError("No free username")
+    """The chosen username, else two random words from the codebase; usernames may be shared"""
+    user = User(username=username or usernames.generate(), **fields)
+    db.add(user)
+    await db.flush()
+    return user
 
 
 async def _revoke_sessions(db: AsyncSession, user: User, keep: UserSession | None = None) -> None:
@@ -135,11 +119,10 @@ async def register(
     """Your password matches the account at this address: signed in. Otherwise a code is emailed (or was, within the
     last minute); entering it creates the account or sets the new password.
 
-    A chosen username is checked first, whatever the address, so the answer never depends on whether it exists.
-    It applies to new accounts only; if it is taken by the time the code is entered, a generated one is used.
+    The name, username and anonymous choice apply to new accounts only; they are checked first, whatever the
+    address, so the answer never depends on whether it has an account.
     """
-    if username is not None and await username_taken(db, username):
-        raise ClientException(messages.username_taken)
+    _check_credit(name, anonymous)
     user = await _user_by_email(db, email)
     matched = user.check_password(password) if user is not None else check_password_hash(None, password)
     if user is not None and matched:
@@ -256,8 +239,9 @@ class Auth:
                 user.google_sub = identity.sub
                 user.email_verified_at = user.email_verified_at or _now()
             else:
-                user = await _create_user(
-                    db, email=identity.email, name=identity.name, google_sub=identity.sub, email_verified_at=_now(),
+                user = await _create_user(  # without a name from Google, anonymous until you add one
+                    db, email=identity.email, name=identity.name, anonymous=identity.name is None,
+                    google_sub=identity.sub, email_verified_at=_now(),
                 )
         if user.is_ai_model:
             raise NotAuthorizedException(messages.login_failed)
@@ -281,15 +265,17 @@ class Auth:
         self.user.set_password(new)
         await _revoke_sessions(self._db, self.user, keep=self.user_session)
 
-    async def change_username(self, username: str) -> None:
-        if await username_taken(self._db, username, by_other_than=self.user):
-            raise ClientException(messages.username_taken)
-        try:
-            async with self._db.begin_nested():
-                self.user.username = username
-                await self._db.flush()
-        except IntegrityError as e:  # taken between the check and the update
-            raise ClientException(messages.username_taken) from e
+    async def update_profile(
+        self, *, name: str | None | object = _UNSET, username: str | object = _UNSET, anonymous: bool | object = _UNSET,
+    ) -> None:
+        """Change any of name, username and anonymous; the result still needs a name unless anonymous"""
+        new_name = self.user.name if name is _UNSET else name
+        new_anonymous = self.user.anonymous if anonymous is _UNSET else anonymous
+        _check_credit(new_name, new_anonymous)
+        self.user.name = new_name
+        self.user.anonymous = new_anonymous
+        if username is not _UNSET:
+            self.user.username = username
 
     async def link_google(self, identity: GoogleIdentity) -> None:
         owner = await self._db.scalar(select(User).where(User.google_sub == identity.sub))

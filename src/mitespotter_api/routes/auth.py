@@ -21,6 +21,7 @@ from litestar.params import FromQuery, QueryParameter
 from litestar.exceptions import ClientException, NotAuthorizedException, ServiceUnavailableException
 from litestar.response import Redirect
 from litestar.status_codes import HTTP_200_OK, HTTP_202_ACCEPTED
+from msgspec import UNSET
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -30,7 +31,7 @@ from ..google import Google, GoogleError
 from ..mail import Email, Mailer, send_safely
 from ..messages import messages
 from .. import usernames
-from ..schemas import ChangePassword, ChangeUsername, CodeEntry, Login, Me, Message, Recover, Register
+from ..schemas import ChangePassword, CodeEntry, Login, Me, Message, Profile, Recover, Register
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -84,6 +85,10 @@ def _check_username(username: str) -> str:
     if not usernames.is_valid(username):
         raise ClientException(messages.username_invalid)
     return username
+
+
+def _clean_name(name: str | None) -> str | None:
+    return " ".join(name.split()) or None if name else None
 
 
 def _set_session_cookie(response: Response[Any], auth: Auth, config: Config) -> None:
@@ -141,7 +146,7 @@ async def register(
         raise ClientException(messages.emails_differ)
     _check_password(data.password, config)
     username = _check_username(data.username) if data.username else None
-    result = await register_account(db_session, email, data.password, data.name, data.anonymous, username)
+    result = await register_account(db_session, email, data.password, _clean_name(data.name), data.anonymous, username)
     if isinstance(result, Auth):
         return _signed_in(result, config)
     return _code_sent(messages.code_sent_register, mailer, result)
@@ -185,10 +190,17 @@ async def change_password(auth: NamedDependency[Auth], data: ChangePassword, con
     return Message(messages.password_changed)
 
 
-@post("/change-username", status_code=HTTP_200_OK)
-async def change_username(auth: NamedDependency[Auth], data: ChangeUsername) -> Message:
-    await auth.change_username(_check_username(data.username))
-    return Message(messages.username_changed)
+@post("/profile", status_code=HTTP_200_OK)
+async def update_profile(auth: NamedDependency[Auth], data: Profile) -> Message:
+    changes: dict[str, Any] = {}
+    if data.name is not UNSET:
+        changes["name"] = _clean_name(data.name)
+    if data.username is not UNSET:
+        changes["username"] = _check_username(data.username)
+    if data.anonymous is not UNSET:
+        changes["anonymous"] = data.anonymous
+    await auth.update_profile(**changes)
+    return Message(messages.profile_saved)
 
 
 @get("/google")
@@ -256,7 +268,7 @@ async def google_callback(
 router = Router(
     path="/auth",
     route_handlers=[
-        me, register, login, logout, logout_everywhere, recover, enter_code, change_password, change_username,
+        me, register, login, logout, logout_everywhere, recover, enter_code, change_password, update_profile,
         google_start, google_callback,
     ],
     middleware=[RateLimitConfig(rate_limit=app_config.auth_rate_limit, identifier_for_request=client_ip).middleware],

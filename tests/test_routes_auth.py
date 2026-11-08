@@ -56,7 +56,8 @@ class Client:
         return re.search(r"\b(\d{6})\b", self.outbox[-1].text).group(1)
 
     def register(self, email: str, password: str = PASSWORD, **extra):
-        return self.post("/api/auth/register", {"email": email, "email_confirmation": email, "password": password, **extra})
+        body = {"email": email, "email_confirmation": email, "password": password, "name": "Test User", **extra}
+        return self.post("/api/auth/register", body)
 
     def enter_code(self, email: str, purpose: str = "register", code: str | None = None):
         return self.post("/api/auth/code", {"email": email, "purpose": purpose, "code": code or self.last_code()})
@@ -358,19 +359,25 @@ def test_google_refuses_ai_models(make_client, app_database):
     assert _google_round_trip(fresh).headers["location"].endswith("/auth?message=google_failed")
 
 
-# MARK: Usernames
+# MARK: Profile
 
-def test_register_with_a_username_and_change_it(client):
-    client.register("named@example.org", username="  Hive   Mind ")
+def test_register_with_a_username_and_update_the_profile(client):
+    client.register("named@example.org", username="  Hive   Mind ", name="  Hive  Keeper ")
     client.enter_code("named@example.org")
-    assert client.get("/api/auth/me").json()["username"] == "Hive Mind"
+    me = client.get("/api/auth/me").json()
+    assert (me["username"], me["name"]) == ("Hive Mind", "Hive Keeper")
 
-    response = client.post("/api/auth/change-username", {"username": "hive.mind_2"})
-    assert response.json() == {"message": messages.username_changed}
-    assert client.get("/api/auth/me").json()["username"] == "hive.mind_2"
+    response = client.post("/api/auth/profile", {"username": "hive.mind_2"})
+    assert response.json() == {"message": messages.profile_saved}
+    response = client.post("/api/auth/profile", {"name": None})
+    assert (response.status_code, response.json()["detail"]) == (400, messages.name_required)
+    client.post("/api/auth/profile", {"name": "   ", "anonymous": True})
+
+    me = client.get("/api/auth/me").json()
+    assert (me["username"], me["name"], me["anonymous"]) == ("hive.mind_2", None, True)
 
 
-@pytest.mark.parametrize("path", ["/api/auth/register", "/api/auth/change-username"])
+@pytest.mark.parametrize("path", ["/api/auth/register", "/api/auth/profile"])
 def test_invalid_usernames_are_refused(client, path):
     client.account(f"checker{len(path)}@example.org")
     body = {"email": "x@example.org", "email_confirmation": "x@example.org", "password": PASSWORD, "username": "no"}
@@ -378,9 +385,14 @@ def test_invalid_usernames_are_refused(client, path):
     assert (response.status_code, response.json()["detail"]) == (400, messages.username_invalid)
 
 
-def test_taken_usernames_are_refused(make_client):
-    owner = make_client()
-    owner.register("owner@example.org", username="Only One")
-    owner.enter_code("owner@example.org")
-    response = make_client().register("rival@example.org", username="only one")
-    assert (response.status_code, response.json()["detail"]) == (400, messages.username_taken)
+def test_registration_needs_a_name_unless_anonymous(client):
+    response = client.register("nameless@example.org", name="  ")
+    assert (response.status_code, response.json()["detail"]) == (400, messages.name_required)
+    assert client.register("nameless@example.org", name=None, anonymous=True).status_code == 202
+
+
+def test_usernames_may_be_shared(make_client):
+    for email in ("twin1@example.org", "twin2@example.org"):
+        client = make_client()
+        client.register(email, username="Twin")
+        assert client.enter_code(email).status_code == 200

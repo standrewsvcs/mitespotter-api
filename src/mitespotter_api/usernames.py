@@ -1,9 +1,10 @@
 """
 src/mitespotter_api/usernames.py
-Usernames: chosen at registration, or generated ("nimble longstepper")
+Usernames: chosen, or two random words drawn from this codebase ("flush pyramid")
 
-Generated names are random word pairs, never derived from ids and never
-numbered; if pairs keep colliding, a second adjective is added.
+Usernames are display names, not identifiers: several people may share one.
+The word pool is every identifier in the package's own source, split on
+underscores, filtered to plain lowercase words, minus keywords and stopwords.
 
 Created: 2026-11-08
 Authors: Maxence Morel Dierckx
@@ -11,15 +12,21 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 
+import builtins
+import io
+import keyword
 import random
 import re
 import secrets
-from collections.abc import Iterator
+import tokenize
+from functools import cache
+from pathlib import Path
 
 
 from .config import config
 
 
+_PACKAGE_DIR = Path(__file__).resolve().parent
 _PATTERN = re.compile(config.username_pattern)
 _SYSTEM_RANDOM = secrets.SystemRandom()
 
@@ -33,11 +40,30 @@ def is_valid(name: str) -> bool:
     return config.username_min_length <= len(name) <= config.username_max_length and bool(_PATTERN.match(name))
 
 
-def candidates(rng: random.Random = _SYSTEM_RANDOM) -> Iterator[str]:
-    """Random "adjective noun" pairs, then "adjective adjective noun" triples"""
-    adjectives, nouns = config.username_adjectives, config.username_nouns
-    for _ in range(config.username_generation_attempts):
-        yield f"{rng.choice(adjectives)} {rng.choice(nouns)}"
-    for _ in range(config.username_generation_attempts):
-        first, second = rng.sample(adjectives, 2)
-        yield f"{first} {second} {rng.choice(nouns)}"
+def words_in(source: str) -> set[str]:
+    shortest, longest = config.username_word_lengths
+    excluded = set(keyword.kwlist) | set(dir(builtins)) | set(config.username_stopwords)
+    found: set[str] = set()
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type != tokenize.NAME:
+            continue
+        for part in token.string.split("_"):
+            if part.isascii() and part.isalpha() and part.islower() and shortest <= len(part) <= longest:
+                found.add(part)
+    return found - excluded
+
+
+@cache
+def words() -> tuple[str, ...]:
+    """Sorted word pool from every .py file in the package (migrations excluded)"""
+    pool: set[str] = set()
+    for path in sorted(_PACKAGE_DIR.rglob("*.py")):
+        if "migrations" not in path.parts:
+            pool |= words_in(path.read_text(encoding="utf-8"))
+    return tuple(sorted(pool))
+
+
+def generate(rng: random.Random = _SYSTEM_RANDOM) -> str:
+    """Two different random words from the pool"""
+    first, second = rng.sample(words(), 2)
+    return f"{first} {second}"

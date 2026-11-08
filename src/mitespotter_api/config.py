@@ -192,27 +192,20 @@ class Config:
     google_flow_cookie_name: str = "mitespotter_google"
     google_flow_lifetime: timedelta = timedelta(minutes=10)
 
-    # Usernames: chosen, or generated as "<adjective> <noun>" ("<adjective> <adjective> <noun>" if pairs collide)
+    # Usernames: chosen, or two random words drawn from this codebase's own identifiers; not unique
     username_min_length: int = 3
     username_max_length: int = 30
     username_pattern: str = r"^[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?$"
-    username_generation_attempts: int = 10
-    username_adjectives: tuple[str, ...] = (
-        "amber", "bold", "bright", "brisk", "buzzy", "calm", "clever", "curious",
-        "dapper", "deft", "eager", "fleet", "fuzzy", "gentle", "golden", "hardy",
-        "honeyed", "humble", "jolly", "keen", "kind", "lively", "lucky", "merry",
-        "mellow", "nimble", "patient", "plucky", "quick", "quiet", "rapid", "sharp",
-        "sleek", "spry", "steady", "sunny", "swift", "tidy", "trusty", "vivid",
-        "wary", "warm", "wild", "wise", "zesty", "zippy", "dusky", "sturdy",
+    username_word_lengths: tuple[int, int] = (4, 10)
+    username_stopwords: tuple[str, ...] = (  # identifiers that make poor or alarming names
+        "admin", "auth", "cookie", "csrf", "hash", "hashed", "hmac", "jwks", "nonce", "password", "passwords",
+        "secret", "secrets", "session", "sessions", "token", "tokens", "verifier", "self", "none", "true", "false",
+        "denied", "dummy", "error", "errors", "exception", "exceptions", "expired", "failed", "invalid", "missing",
+        "purge", "revoke", "unknown", "violates", "wrong", "delete", "deleted", "deletes",
     )
-    username_nouns: tuple[str, ...] = (
-        "finder", "longstepper", "forager", "spotter", "drone", "keeper", "scout", "worker",
-        "nectar", "pollinator", "comber", "hiver", "swarmer", "waggler", "dancer", "buzzer",
-        "clover", "heather", "bramble", "thistle", "lavender", "meadow", "orchard", "foxglove",
-        "beekeeper", "smoker", "frame", "brood", "honeycomb", "propolis", "waxmaker", "seeker",
-        "tracker", "watcher", "counter", "sorter", "glider", "hoverer", "rambler", "wanderer",
-        "lookout", "pathfinder", "gatherer", "builder", "tender", "guard", "nurse", "sentry",
-    )
+
+    # Credit: a name is required unless the account is anonymous
+    name_max_length: int = 200
 
     # MARK: Derived
 

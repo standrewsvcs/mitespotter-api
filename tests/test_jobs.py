@@ -24,7 +24,7 @@ NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
 
 
 async def test_purge_expired(db):
-    user = User(username="tidy keeper")
+    user = User(username="tidy keeper", name="Tidy")
     db.add(user)
     await db.flush()
     hour, day = timedelta(hours=1), timedelta(days=1)

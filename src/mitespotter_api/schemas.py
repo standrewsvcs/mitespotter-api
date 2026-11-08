@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 
-from msgspec import Meta, Struct
+from msgspec import UNSET, Meta, Struct, UnsetType
 
 
 from .config import config
@@ -21,7 +21,7 @@ from .config import config
 
 Email = Annotated[str, Meta(max_length=254)]
 Password = Annotated[str, Meta(max_length=config.password_max_length)]
-Name = Annotated[str, Meta(max_length=200)]
+Name = Annotated[str, Meta(max_length=config.name_max_length)]
 Code = Annotated[str, Meta(max_length=16)]
 Username = Annotated[str, Meta(max_length=100)]  # normalised and checked against config in the routes
 
@@ -30,9 +30,9 @@ class Register(Struct, forbid_unknown_fields=True):
     email: Email
     email_confirmation: Email
     password: Password
-    name: Name | None = None
+    name: Name | None = None  # required unless anonymous, for credit
     anonymous: bool = False
-    username: Username | None = None  # generated when left out
+    username: Username | None = None  # generated when left out; may be shared
 
 
 class Login(Struct, forbid_unknown_fields=True):
@@ -56,8 +56,11 @@ class ChangePassword(Struct, forbid_unknown_fields=True):
     new_password: Password
 
 
-class ChangeUsername(Struct, forbid_unknown_fields=True):
-    username: Username
+class Profile(Struct, forbid_unknown_fields=True):
+    """Fields left out stay as they are"""
+    name: Name | None | UnsetType = UNSET
+    username: Username | UnsetType = UNSET
+    anonymous: bool | UnsetType = UNSET
 
 
 class Message(Struct):

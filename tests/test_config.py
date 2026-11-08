@@ -403,8 +403,9 @@ def test_google_is_enabled_by_both_credentials(load_config):
     assert config.google_redirect_uri == "https://mitespotter.org/api/auth/google/callback"
 
 
-def test_username_words_are_unique_lowercase_words(load_config):
+def test_username_limits(load_config):
     config = load_config()
-    for words in (config.username_adjectives, config.username_nouns):
-        assert len(words) == len(set(words)) >= 32
-        assert all(word.isalpha() and word.islower() for word in words)
+    shortest, longest = config.username_word_lengths
+    assert 0 < shortest <= longest
+    assert config.username_min_length <= config.username_max_length
+    assert all(word.islower() for word in config.username_stopwords)
