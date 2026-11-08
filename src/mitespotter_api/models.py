@@ -99,6 +99,7 @@ class User(DefaultBase):
     username: Mapped[str] = mapped_column(CITEXT, unique=True)  # auto-generated from id, distinguishes anonymous users
     email: Mapped[str | None] = mapped_column(CITEXT, unique=True)
     hashed_password: Mapped[str | None] = mapped_column(Text)
+    google_sub: Mapped[str | None] = mapped_column(Text, unique=True)  # OpenID Connect subject
     email_verified_at: Mapped[datetime | None] = _timestamptz(nullable=True)
     created_at: Mapped[datetime] = _timestamptz(now=True)
     anonymous: Mapped[bool] = mapped_column(Boolean, server_default=false())
@@ -159,13 +160,19 @@ class AccountToken(DefaultBase):
     __tablename__ = "account_tokens"
     __table_args__ = (
         CheckConstraint(_in("purpose", config.account_token_purposes), name=conv("ck_account_tokens_purpose")),
-        Index("idx_account_tokens_open", "user_id", "purpose", postgresql_where=text("used_at IS NULL")),
+        CheckConstraint("attempts >= 0", name=conv("ck_account_tokens_attempts")),
+        # One open code per user per purpose
+        Index(
+            "uq_account_tokens_open", "user_id", "purpose",
+            unique=True, postgresql_where=text("used_at IS NULL"),
+        ),
     )
 
     id: Mapped[int] = _id()
     user_id: Mapped[int] = _fk("users.id", "CASCADE", "fk_account_token_user")
     purpose: Mapped[str] = mapped_column(Text)
-    token_hash: Mapped[str] = mapped_column(Text, unique=True)  # sha256 of the emailed token
+    code_hash: Mapped[str] = mapped_column(Text)  # HMAC of the emailed code
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = _timestamptz(now=True)
     expires_at: Mapped[datetime] = _timestamptz()
     used_at: Mapped[datetime | None] = _timestamptz(nullable=True)

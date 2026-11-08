@@ -75,7 +75,7 @@ def test_check_constraints_keep_their_planned_names():
         "ck_image_events_type", "ck_annotation_events_type", "ck_annotation_events_bbox",
         "ck_annotation_events_confidence",
         "ck_report_reason", "ck_report_other_notes", "ck_report_resolved",
-        "ck_account_tokens_purpose",
+        "ck_account_tokens_purpose", "ck_account_tokens_attempts",
     }
 
 

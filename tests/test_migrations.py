@@ -81,5 +81,6 @@ def test_offline_mode_renders_sql_without_a_database(capsys):
     sql = capsys.readouterr().out
     assert "CREATE EXTENSION IF NOT EXISTS citext" in sql
     assert "CREATE TABLE categories" in sql
+    assert "CREATE UNIQUE INDEX uq_account_tokens_open ON account_tokens (user_id, purpose) WHERE used_at IS NULL" in sql
     assert "CREATE UNIQUE INDEX uq_reports_open ON reports (reporter_id, image_id) WHERE resolved_at IS NULL" in sql
     assert "INSERT INTO alembic_version" in sql

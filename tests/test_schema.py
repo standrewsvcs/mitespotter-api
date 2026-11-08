@@ -378,21 +378,48 @@ def test_session_defaults_and_unique_hash(session):
               constraint="uq_user_sessions_token_hash")
 
 
-def test_account_token_purpose_is_checked(session):
+def _code(user: User, purpose: str = "recover", **kwargs) -> AccountToken:
+    return AccountToken(user_id=user.id, purpose=purpose, code_hash="c" * 64, expires_at=NOW, **kwargs)
+
+
+def test_account_token_checks(session):
     user = _user(session)
-    session.add(AccountToken(user_id=user.id, purpose="recover", token_hash="r" * 64, expires_at=NOW))
+    _rejected(session, _code(user, purpose="login"), constraint="ck_account_tokens_purpose")
+    _rejected(session, _code(user, attempts=-1), constraint="ck_account_tokens_attempts")
+
+
+def test_account_token_attempts_default_to_zero(session):
+    user = _user(session)
+    code = _code(user)
+    session.add(code)
     session.flush()
-    _rejected(session, AccountToken(user_id=user.id, purpose="login", token_hash="x" * 64, expires_at=NOW),
-              constraint="ck_account_tokens_purpose")
-    _rejected(session, AccountToken(user_id=user.id, purpose="verify", token_hash="r" * 64, expires_at=NOW),
-              constraint="uq_account_tokens_token_hash")
+    session.refresh(code)
+    assert code.attempts == 0
+
+
+def test_one_open_code_per_user_per_purpose(session):
+    user = _user(session)
+    first = _code(user)
+    session.add_all([first, _code(user, purpose="verify")])
+    session.flush()
+    _rejected(session, _code(user), constraint="uq_account_tokens_open")
+
+    first.used_at = NOW
+    session.flush()
+    session.add(_code(user))
+    session.flush()
+
+
+def test_google_subject_is_unique(session):
+    _user(session, "a", google_sub="1234567890")
+    _rejected(session, User(username="b", google_sub="1234567890"), constraint="uq_users_google_sub")
 
 
 def test_deleting_a_user_removes_their_sessions_and_tokens(session):
     user = _user(session)
     session.add_all([
         UserSession(user_id=user.id, token_hash="s" * 64, expires_at=NOW),
-        AccountToken(user_id=user.id, purpose="verify", token_hash="v" * 64, expires_at=NOW),
+        _code(user, purpose="verify"),
     ])
     session.flush()
     session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user.id})
