@@ -1,14 +1,17 @@
 # deploy/cloudflared.example.yml
-# Cloudflare Tunnel for the VPS; copy to /etc/cloudflared/config.yml.
-# Create the tunnel with `cloudflared tunnel create mitespotter-api`; never commit the credentials file.
-# See planning.md "Deployment".
+# Named Cloudflare tunnel for the public dev server; copy to /etc/cloudflared/config.yml
+# and replace <TUNNEL-ID>. Created with (see README "Run the public dev server"):
+#   cloudflared tunnel login
+#   cloudflared tunnel create mitespotter-dev      # writes ~/.cloudflared/<TUNNEL-ID>.json
+#   cloudflared tunnel route dns mitespotter-dev dev.mitespotter.org
+# Copy the credentials file next to the config; never commit it. See planning.md "Deployment".
 
-tunnel: mitespotter-api
-credentials-file: /etc/cloudflared/mitespotter-api.json
+tunnel: mitespotter-dev
+credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
 
 ingress:
-  # Only the API is served from the VPS; /data/* is R2 and everything else is the frontend.
-  - hostname: mitespotter.org
-    path: ^/api/.*
+  # Only the API exists yet. uvicorn listens on 127.0.0.1, so the tunnel is the only way in.
+  - hostname: dev.mitespotter.org
+    path: ^/api/
     service: http://127.0.0.1:6776
   - service: http_status:404

@@ -221,3 +221,6 @@ __marimo__/
 *.sqlite
 *.db
 coverage.json
+
+# Public dev server settings (deploy/dev.env.example is the template)
+deploy/dev.env

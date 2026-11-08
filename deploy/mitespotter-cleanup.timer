@@ -1,0 +1,13 @@
+# deploy/mitespotter-cleanup.timer
+# Nightly cleanup. Persistent catches up on a run missed while the machine was off (a laptop).
+
+[Unit]
+Description=Nightly Mitespotter cleanup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
