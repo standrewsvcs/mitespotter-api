@@ -23,7 +23,7 @@ from .db import make_alchemy_config
 from .google import Google
 from .mail import make_mailer
 from .messages import messages
-from .routes import auth, health, users
+from .routes import auth, dev, health, users
 from .routes.auth import provide_config, provide_google, provide_mailer
 
 
@@ -38,9 +38,12 @@ def permission_denied(request: Request, exc: PermissionDeniedException) -> Respo
 
 def create_app(config: Config | None = None) -> Litestar:
     config = config or config_module.config
+    handlers = [health.router, auth.router, users.router]
+    if config.dev_page:
+        handlers.append(dev.dev_page)
     api = Router(
         path=config.api_prefix,
-        route_handlers=[health.router, auth.router, users.router],
+        route_handlers=handlers,
         dependencies={
             "config": Provide(provide_config, sync_to_thread=False),
             "mailer": Provide(provide_mailer, sync_to_thread=False),

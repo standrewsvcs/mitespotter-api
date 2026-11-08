@@ -43,6 +43,7 @@ CONFIG_ENV_VARS = (
     "MITESPOTTER_EMAIL_FROM",
     "MITESPOTTER_RESEND_API_KEY",
     "MITESPOTTER_MAILER",
+    "MITESPOTTER_DEV_PAGE",
 )
 
 
@@ -411,3 +412,26 @@ def test_username_limits(load_config):
     assert all(word.islower() for word in config.username_stopwords)
     assert len(config.username_adjectives) == len(set(config.username_adjectives)) >= 32
     assert all(word.isalpha() and word.islower() for word in config.username_adjectives)
+
+
+# MARK: Developer test page
+
+def test_dev_page_is_on_outside_prod(load_config):
+    assert load_config().dev_page is True
+    assert load_config(MITESPOTTER_ENV="test").dev_page is True
+
+
+def test_dev_page_is_off_in_prod(load_config):
+    assert load_config(**PROD_ENV).dev_page is False
+
+
+def test_dev_page_can_be_switched_on_in_prod(load_config):
+    assert load_config(**PROD_ENV, MITESPOTTER_DEV_PAGE="true").dev_page is True
+
+
+def test_dev_page_can_be_switched_off(load_config):
+    assert load_config(MITESPOTTER_DEV_PAGE="off").dev_page is False
+
+
+def test_dev_page_template_ships_with_the_package(load_config):
+    assert load_config().dev_page_template.is_file()

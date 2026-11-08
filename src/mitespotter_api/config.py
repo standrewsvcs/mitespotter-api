@@ -109,6 +109,7 @@ class Config:
     email_from: str
     google_client_id: str | None
     google_client_secret: str | None
+    dev_page: bool  # GET /api/dev, a test page that only calls the public API
 
     # API
     api_prefix: str = "/api"
@@ -191,6 +192,9 @@ class Config:
     google_scopes: str = "openid email profile"
     google_flow_cookie_name: str = "mitespotter_google"
     google_flow_lifetime: timedelta = timedelta(minutes=10)
+
+    # Developer test page
+    dev_page_template: Path = Path(__file__).resolve().parent / "dev.html"
 
     # Usernames: chosen, or "<adjective> <word>", the word drawn from this codebase's own identifiers; not unique
     username_adjectives: tuple[str, ...] = (
@@ -347,6 +351,7 @@ class Config:
             email_from=_env_str(env, "MITESPOTTER_EMAIL_FROM", "Mitespotter <noreply@mitespotter.org>"),
             google_client_id=env.get("MITESPOTTER_GOOGLE_CLIENT_ID", "").strip() or None,
             google_client_secret=env.get("MITESPOTTER_GOOGLE_CLIENT_SECRET", "").strip() or None,
+            dev_page=_env_bool(env, "MITESPOTTER_DEV_PAGE", not is_production),
             **r2,
         )
 

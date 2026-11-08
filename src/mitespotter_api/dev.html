@@ -1,0 +1,352 @@
+<!doctype html>
+<!--
+src/mitespotter_api/dev.html
+Developer test page, served at GET /api/dev by routes/dev.py
+
+Self-contained: inline style and script only, each carrying the per-request
+nonce that the Content-Security-Policy allows. Request bodies are built only from each form's named
+fields, so tests/test_routes_dev.py can check them against schemas.py.
+
+Created: 2026-11-08
+Authors: Maxence Morel Dierckx
+-->
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mitespotter dev</title>
+<style nonce="{{nonce}}">
+:root {
+  --bg: #fafaf7; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d6d6cf;
+  --accent: #8a5a00; --accent-fg: #ffffff; --ok: #1f6f3a; --bad: #a32020; --code: #f1f0ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161614; --fg: #ecebe6; --muted: #a8a7a0; --card: #201f1d; --line: #3a3935;
+    --accent: #e0a63a; --accent-fg: #1d1d1b; --ok: #6fcf8f; --bad: #ff8a80; --code: #2a2926;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 640px; margin: 0 auto; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 0 0 12px; }
+h2.spaced { margin-top: 24px; }
+p.note { color: var(--muted); margin: 0 0 16px; }
+nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+nav a { color: var(--accent); padding: 6px 0; margin-right: 8px; }
+section {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; margin: 0 0 16px;
+}
+label { display: block; margin: 0 0 12px; font-weight: 600; }
+label.check { display: flex; align-items: center; gap: 12px; font-weight: 600; min-height: 48px; }
+input[type=text], input[type=email], input[type=password], input[type=number], select {
+  display: block; width: 100%; margin-top: 4px; padding: 12px; min-height: 48px;
+  font: inherit; font-size: 17px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+input[type=checkbox] { width: 28px; height: 28px; margin: 0; accent-color: var(--accent); }
+.row { display: flex; gap: 8px; align-items: flex-end; }
+.row input { flex: 1; }
+button, a.button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 20px; font: inherit; font-weight: 600;
+  border-radius: 8px; border: 1px solid var(--accent); cursor: pointer; text-decoration: none;
+}
+button[type=submit], a.button { width: 100%; background: var(--accent); color: var(--accent-fg); }
+button.secondary { background: transparent; color: var(--accent); flex: none; }
+.result { margin-top: 12px; }
+.status { font-weight: 700; }
+.status.ok { color: var(--ok); }
+.status.bad { color: var(--bad); }
+pre {
+  margin: 4px 0 0; padding: 12px; background: var(--code); border-radius: 8px;
+  white-space: pre-wrap; word-break: break-word; font-size: 15px;
+}
+.profile-link { margin-top: 12px; }
+.profile-link[hidden], .result[hidden] { display: none; }
+</style>
+</head>
+<body data-csrf-cookie="{{csrf_cookie}}" data-csrf-header="{{csrf_header}}">
+<main>
+<h1>Mitespotter dev</h1>
+<p class="note">A test page for every account flow. It only calls the public API; each answer appears under its form.</p>
+
+<nav>
+  <a href="#me">Who am I</a><a href="#register">Register</a><a href="#code">Code</a>
+  <a href="#login">Sign in</a><a href="#recover">Recover</a><a href="#password">Password</a>
+  <a href="#profile">Profile</a><a href="#google">Google</a><a href="#lookup">Lookup</a>
+</nav>
+
+<section id="me">
+  <h2>Who am I</h2>
+  <form data-method="get" data-path="/api/auth/me">
+    <button type="submit">Check</button>
+  </form>
+  <div class="profile-link" hidden>
+    <label>Your profile link
+      <div class="row">
+        <input type="text" readonly id="profile-url">
+        <button type="button" class="secondary" id="copy-profile">Copy</button>
+      </div>
+    </label>
+  </div>
+</section>
+
+<section id="register">
+  <h2>Register</h2>
+  <form data-method="post" data-path="/api/auth/register" data-code-purpose="register">
+    <label>Email <input type="email" name="email" autocomplete="email" autocapitalize="none" required></label>
+    <label>Email again <input type="email" name="email_confirmation" autocomplete="email" autocapitalize="none" required></label>
+    <label>Password
+      <div class="row">
+        <input type="password" name="password" autocomplete="new-password" required>
+        <button type="button" class="secondary" data-toggle>Show</button>
+      </div>
+    </label>
+    <label>Name <input type="text" name="name" autocomplete="name"></label>
+    <label>Username (optional) <input type="text" name="username" autocomplete="nickname" autocapitalize="none"></label>
+    <label class="check"><input type="checkbox" name="anonymous"> Anonymous</label>
+    <button type="submit">Register</button>
+  </form>
+</section>
+
+<section id="code">
+  <h2>Enter code</h2>
+  <form data-method="post" data-path="/api/auth/code" id="code-form">
+    <label>Email <input type="email" name="email" autocomplete="email" autocapitalize="none" required></label>
+    <label>For
+      <select name="purpose">
+        <option value="register">register</option>
+        <option value="recover">recover</option>
+      </select>
+    </label>
+    <label>Code <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+    <button type="submit">Enter code</button>
+  </form>
+</section>
+
+<section id="login">
+  <h2>Sign in</h2>
+  <form data-method="post" data-path="/api/auth/login">
+    <label>Email <input type="email" name="email" autocomplete="email" autocapitalize="none" required></label>
+    <label>Password
+      <div class="row">
+        <input type="password" name="password" autocomplete="current-password" required>
+        <button type="button" class="secondary" data-toggle>Show</button>
+      </div>
+    </label>
+    <button type="submit">Sign in</button>
+  </form>
+</section>
+
+<section id="logout">
+  <h2>Sign out</h2>
+  <form data-method="post" data-path="/api/auth/logout">
+    <button type="submit">Sign out</button>
+  </form>
+  <h2 class="spaced">Sign out everywhere</h2>
+  <form data-method="post" data-path="/api/auth/logout-everywhere">
+    <button type="submit">Sign out everywhere</button>
+  </form>
+</section>
+
+<section id="recover">
+  <h2>Recover</h2>
+  <form data-method="post" data-path="/api/auth/recover" data-code-purpose="recover">
+    <label>Email <input type="email" name="email" autocomplete="email" autocapitalize="none" required></label>
+    <label>New password
+      <div class="row">
+        <input type="password" name="password" autocomplete="new-password" required>
+        <button type="button" class="secondary" data-toggle>Show</button>
+      </div>
+    </label>
+    <button type="submit">Send recovery code</button>
+  </form>
+</section>
+
+<section id="password">
+  <h2>Change password</h2>
+  <form data-method="post" data-path="/api/auth/change-password">
+    <label>Current password
+      <div class="row">
+        <input type="password" name="current_password" autocomplete="current-password" required>
+        <button type="button" class="secondary" data-toggle>Show</button>
+      </div>
+    </label>
+    <label>New password
+      <div class="row">
+        <input type="password" name="new_password" autocomplete="new-password" required>
+        <button type="button" class="secondary" data-toggle>Show</button>
+      </div>
+    </label>
+    <button type="submit">Change password</button>
+  </form>
+</section>
+
+<section id="profile">
+  <h2>Profile</h2>
+  <p class="note">Only filled fields are sent, plus the anonymous box (set from Who am I).</p>
+  <form data-method="post" data-path="/api/auth/profile" id="profile-form">
+    <label>Name <input type="text" name="name" autocomplete="name"></label>
+    <label>Username <input type="text" name="username" autocomplete="nickname" autocapitalize="none"></label>
+    <label class="check"><input type="checkbox" name="anonymous"> Anonymous</label>
+    <button type="submit">Save profile</button>
+  </form>
+</section>
+
+<section id="google">
+  <h2>Sign in with Google</h2>
+  <p class="note">Google sends you back to the site, not here; come back to this page afterwards.</p>
+  <a class="button" href="/api/auth/google">Sign in with Google</a>
+</section>
+
+<section id="lookup">
+  <h2>Public profile</h2>
+  <form data-method="get" data-path="/api/users/{user_id}">
+    <label>User id <input type="number" name="user_id" inputmode="numeric" min="1" required></label>
+    <button type="submit">Look up</button>
+  </form>
+</section>
+</main>
+
+<script nonce="{{nonce}}">
+"use strict";
+(() => {
+  const csrfCookie = document.body.dataset.csrfCookie;
+  const csrfHeader = document.body.dataset.csrfHeader;
+
+  function cookie(name) {
+    for (const part of document.cookie.split(";")) {
+      const [key, ...rest] = part.trim().split("=");
+      if (key === name) return decodeURIComponent(rest.join("="));
+    }
+    return "";
+  }
+
+  async function call(method, path, body) {
+    const options = { method, credentials: "same-origin", headers: { accept: "application/json" } };
+    if (method === "POST") {
+      options.headers["content-type"] = "application/json";
+      options.headers[csrfHeader] = cookie(csrfCookie);
+      options.body = JSON.stringify(body || {});
+    }
+    let response, text;
+    try {
+      response = await fetch(path, options);
+      text = await response.text();
+    } catch (error) {
+      return { status: 0, label: "network error", body: String(error), json: null };
+    }
+    let json = null;
+    try { json = JSON.parse(text); } catch (error) { json = null; }
+    return {
+      status: response.status,
+      label: response.status + " " + response.statusText,
+      body: json === null ? text : JSON.stringify(json, null, 2),
+      json,
+    };
+  }
+
+  function show(form, result) {
+    let box = form.querySelector(".result");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "result";
+      box.setAttribute("aria-live", "polite");
+      box.append(document.createElement("div"), document.createElement("pre"));
+      box.firstChild.className = "status";
+      form.append(box);
+    }
+    const ok = result.status >= 200 && result.status < 300;
+    box.firstChild.textContent = result.label;
+    box.firstChild.classList.toggle("ok", ok);
+    box.firstChild.classList.toggle("bad", !ok);
+    box.lastChild.textContent = result.body;
+  }
+
+  // The body is the form's named fields: checkboxes as booleans, empty fields left out
+  function body(form) {
+    const data = {};
+    for (const field of form.elements) {
+      if (!field.name) continue;
+      if (field.type === "checkbox") data[field.name] = field.checked;
+      else if (field.value !== "") data[field.name] = field.value;
+    }
+    return data;
+  }
+
+  function path(form, data) {
+    return form.dataset.path.replace(/\{(\w+)\}/g, (_, name) => encodeURIComponent(data[name] || ""));
+  }
+
+  const meForm = document.querySelector('form[data-path="/api/auth/me"]');
+  const linkBox = document.querySelector(".profile-link");
+  const linkInput = document.getElementById("profile-url");
+
+  async function whoAmI() {
+    const result = await call("GET", meForm.dataset.path);
+    show(meForm, result);
+    const signedIn = result.status === 200 && result.json;
+    linkBox.hidden = !signedIn;
+    if (signedIn) {
+      linkInput.value = result.json.profile_url;
+      document.querySelector('#profile-form input[name="anonymous"]').checked = result.json.anonymous;
+    }
+  }
+
+  for (const form of document.querySelectorAll("form[data-path]")) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        if (form === meForm) return await whoAmI();
+        const data = body(form);
+        const method = form.dataset.method.toUpperCase();
+        const result = await call(method, path(form, data), method === "POST" ? data : undefined);
+        show(form, result);
+        if (form.dataset.codePurpose && result.status === 202) {
+          const codeForm = document.getElementById("code-form");
+          codeForm.elements.email.value = data.email || "";
+          codeForm.elements.purpose.value = form.dataset.codePurpose;
+        }
+        if (method === "POST") await whoAmI();
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+
+  for (const toggle of document.querySelectorAll("button[data-toggle]")) {
+    toggle.addEventListener("click", () => {
+      const input = toggle.parentElement.querySelector("input");
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      toggle.textContent = hidden ? "Hide" : "Show";
+    });
+  }
+
+  document.getElementById("copy-profile").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      await navigator.clipboard.writeText(linkInput.value);
+    } catch (error) {
+      linkInput.select();
+      document.execCommand("copy");
+    }
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1500);
+  });
+
+  call("GET", "/api/health").then(whoAmI);  // the health check sets the CSRF cookie
+})();
+</script>
+</body>
+</html>
