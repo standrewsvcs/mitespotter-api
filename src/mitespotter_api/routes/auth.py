@@ -224,6 +224,14 @@ async def google_start(google: NamedDependency[Google], config: NamedDependency[
     return response
 
 
+def _back_to_site(config: Config, page: str, message: str | None = None) -> Redirect:
+    """Where Google sign-in lands: the dev page while it's on (the frontend doesn't exist yet), else the site.
+    The message is a key from messages.toml for the page to show."""
+    path = f"{config.api_prefix}/dev" if config.dev_page else f"/{page}"
+    query = f"?message={message}" if message else ""
+    return Redirect(f"{config.public_url}{path}{query}")
+
+
 async def _google_outcome(
     request: Request[Any, Any, Any], db: AsyncSession, google: Google, config: Config,
     state: str | None, code: str | None,
@@ -233,7 +241,7 @@ async def _google_outcome(
         flow = google.flow_from_cookie(request.cookies.get(config.google_flow_cookie_name))
         identity = await google.finish(flow, state, code)
     except GoogleError:
-        return Redirect(f"{config.public_url}/auth?message=google_failed")
+        return _back_to_site(config, "auth", "google_failed")
     try:
         current: Auth | None = await Auth.from_cookie(db, request.cookies.get(config.session_cookie_name))
     except NotAuthorizedException:
@@ -241,13 +249,13 @@ async def _google_outcome(
     try:
         if current is not None:
             await current.link_google(identity)
-            return Redirect(f"{config.public_url}/account?message=google_linked")
+            return _back_to_site(config, "account", "google_linked")
         auth = await Auth.from_google(db, identity)
     except NotAuthorizedException:  # a ClientException too, so first
-        return Redirect(f"{config.public_url}/auth?message=google_failed")
+        return _back_to_site(config, "auth", "google_failed")
     except ClientException:
-        return Redirect(f"{config.public_url}/account?message=google_in_use")
-    response = Redirect(f"{config.public_url}/")
+        return _back_to_site(config, "account", "google_in_use")
+    response = _back_to_site(config, "", "signed_in")
     _set_session_cookie(response, auth, config)
     return response
 

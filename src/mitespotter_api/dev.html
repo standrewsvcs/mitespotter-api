@@ -71,11 +71,13 @@ pre {
 }
 .profile-link { margin-top: 12px; }
 .profile-link[hidden], .result[hidden] { display: none; }
+.notice { padding: .75rem 1rem; border-radius: .5rem; background: #fff4cc; color: #3a2f00; }
 </style>
 </head>
 <body data-csrf-cookie="{{csrf_cookie}}" data-csrf-header="{{csrf_header}}">
 <main>
 <h1>Mitespotter dev</h1>
+{{notice}}
 <p class="note">A test page for every account flow. It only calls the public API; each answer appears under its form.</p>
 
 <nav>
@@ -203,7 +205,7 @@ pre {
 
 <section id="google">
   <h2>Sign in with Google</h2>
-  <p class="note">Google sends you back to the site, not here; come back to this page afterwards.</p>
+  <p class="note">Google sends you back to this page while it's on.</p>
   <a class="button" href="/api/auth/google">Sign in with Google</a>
 </section>
 

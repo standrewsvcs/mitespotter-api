@@ -204,3 +204,23 @@ def test_get_forms_only_fill_path_parameters(page):
 def test_purpose_choices_match_the_code_entry_struct(page):
     purposes = get_args(get_type_hints(schemas.CodeEntry)["purpose"])
     assert set(re.findall(r'<option value="(\w+)"', page)) == set(purposes)
+
+
+def test_redirect_messages_are_shown_as_a_notice(client):
+    from mitespotter_api.messages import messages
+
+    page = client.get("/api/dev?message=google_linked").text
+    assert f'<p class="notice" role="status">{messages.google_linked}</p>' in page
+
+
+@pytest.mark.parametrize("query", ["", "?message=", "?message=nope", "?message=<script>"])
+def test_unknown_or_missing_messages_show_no_notice(client, query):
+    page = client.get(f"/api/dev{query}").text
+    assert 'class="notice"' not in page.split("</style>")[1]
+    assert "{{notice}}" not in page
+
+
+def test_notices_are_escaped():
+    from mitespotter_api.routes.dev import notice
+
+    assert "&#x27;" in notice("signed_in")  # "You're signed in."

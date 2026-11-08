@@ -314,7 +314,7 @@ def test_google_start_redirects_with_a_flow_cookie(make_client):
 def test_google_signs_you_in(make_client):
     client, _ = _google_client(make_client, GoogleIdentity(sub="r1", email="ping.google@example.org", name="Ping"))
     response = _google_round_trip(client)
-    assert response.headers["location"] == "http://127.0.0.1:6776/"
+    assert response.headers["location"] == "http://127.0.0.1:6776/api/dev?message=signed_in"
     assert _session_cookie(response)
     me = client.get("/api/auth/me").json()
     assert (me["google_linked"], me["has_password"], me["registered"]) == (True, False, True)
@@ -323,16 +323,16 @@ def test_google_signs_you_in(make_client):
 def test_google_failure_redirects_with_a_message(make_client):
     client, _ = _google_client(make_client, None)
     response = _google_round_trip(client)
-    assert response.headers["location"].endswith("/auth?message=google_failed")
+    assert response.headers["location"].endswith("/api/dev?message=google_failed")
     no_cookie = client.get("/api/auth/google/callback?state=x&code=c", follow_redirects=False)
-    assert no_cookie.headers["location"].endswith("/auth?message=google_failed")
+    assert no_cookie.headers["location"].endswith("/api/dev?message=google_failed")
 
 
 def test_google_links_when_signed_in(make_client):
     client, _ = _google_client(make_client, GoogleIdentity(sub="r2", email="different@example.org", name=None))
     client.account("linker@example.org")
     response = _google_round_trip(client)
-    assert response.headers["location"].endswith("/account?message=google_linked")
+    assert response.headers["location"].endswith("/api/dev?message=google_linked")
     assert client.get("/api/auth/me").json()["google_linked"] is True
 
 
@@ -342,7 +342,7 @@ def test_google_in_use_by_another_account(make_client):
 
     client, _ = _google_client(make_client, GoogleIdentity(sub="r3", email="owner3@example.org", name=None))
     client.account("second3@example.org")
-    assert _google_round_trip(client).headers["location"].endswith("/account?message=google_in_use")
+    assert _google_round_trip(client).headers["location"].endswith("/api/dev?message=google_in_use")
 
 
 def test_google_refuses_ai_models(make_client, app_database):
@@ -356,7 +356,7 @@ def test_google_refuses_ai_models(make_client, app_database):
         conn.execute("UPDATE users SET is_ai_model = true WHERE google_sub = 'r4'")
 
     fresh, _ = _google_client(make_client, GoogleIdentity(sub="r4", email="bot4@example.org", name=None))
-    assert _google_round_trip(fresh).headers["location"].endswith("/auth?message=google_failed")
+    assert _google_round_trip(fresh).headers["location"].endswith("/api/dev?message=google_failed")
 
 
 # MARK: Profile
@@ -396,3 +396,14 @@ def test_usernames_may_be_shared(make_client):
         client = make_client()
         client.register(email, username="Twin")
         assert client.enter_code(email).status_code == 200
+
+
+def test_google_lands_on_the_site_when_the_dev_page_is_off(make_client):
+    client = make_client(**GOOGLE_ENV, MITESPOTTER_DEV_PAGE="false")
+    stub = StubGoogle(client.app.state.config)
+    stub.identity = GoogleIdentity(sub="r5", email="site5@example.org", name="Site")
+    client.app.state.google = stub
+    assert _google_round_trip(client).headers["location"] == "http://127.0.0.1:6776/?message=signed_in"
+
+    stub.identity = None
+    assert _google_round_trip(client).headers["location"] == "http://127.0.0.1:6776/auth?message=google_failed"

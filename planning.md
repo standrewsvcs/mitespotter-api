@@ -492,6 +492,7 @@ You need an account to contribute, for credit: add your name, or tick `anonymous
   - Known Google account: you're signed in.
   - Google-verified email matching an account: linked and signed in; the account keeps its password.
   - Otherwise: a new account, verified, without a password; anonymous until you add a name if Google gives none.
+  - Google sends you back to the site with a message key (`?message=google_failed`); while the dev page is on, to `/api/dev`, which shows the message.
 - **Usernames.** A display name, not an identifier: people may share one; accounts are told apart by email. Chosen at registration (3 to 30 letters, numbers, spaces, dots, dashes or underscores) or, left empty, a friendly adjective and a word drawn from the codebase's own identifiers (`nimble pyramids`): the codebase is the most space-efficient source of words, and grows with the code. Change it, your name or `anonymous` with `POST /api/auth/profile`; the result must still have a name unless anonymous.
 - **Sign in.** "Incorrect email or password." for any failure. Unknown emails are checked against a dummy hash. Outdated hashes are upgraded on sign-in. AI models never use passwords.
 - **Codes.** Each email says what its code does (verify, sign in with the new password, or recover). If you didn't ask: a new address is told to ignore the email; an existing account is told someone might be trying to guess its password. 6 digits, emailed through Resend, valid 15 minutes, 5 attempts, single use, one open code per address and purpose, at most one email a minute. Stored as an HMAC keyed with the secret key, in `email_codes`, with the password and details they apply.
@@ -579,6 +580,7 @@ VPS: uvicorn (systemd) · Postgres 16 · cloudflared · systemd timers for jobs
 - **VPS + Tunnel.** `cloudflared` exposes the API with no inbound ports open. Litestar trusts `CF-Connecting-IP` for the client address.
 - **R2 buckets/prefixes.** `images/`, `thumbnails/`, `pyramids/`, `datasets/`. Accessed through R2's S3-compatible API (`boto3`). In dev and tests the same keys live on local disk under `data/` (`MITESPOTTER_STORAGE=local|r2`).
 - **On the VPS only.** `originals/` and `backups/` stay on local disk until the weekly job moves them to long-term storage.
+- **`/data` outside production.** The storage layer abstracts where files live: `public_url(key)` points wherever `MITESPOTTER_PUBLIC_DATA_URL` says. In development that can be nginx over `data/`, or the app serving `LocalStorage` itself. Not built until uploads exist; the dev tunnel routes only `/api` until then.
 - **Frontend.** `mitespotter` is deployed with wrangler as static assets; `/api/*` and `/data/*` are routed before it.
 - **Not used, and why.**
   - *D1*: SQLite (no CITEXT, no TIMESTAMPTZ, signed 64-bit integers cannot hold the uint64 `phash`), no psycopg/SQLAlchemy async dialect so no advanced-alchemy or Alembic, no `pg_dump`, 10 GB cap.

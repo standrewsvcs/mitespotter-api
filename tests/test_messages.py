@@ -71,8 +71,8 @@ def test_every_message_used_in_code_exists():
 
 def test_redirect_message_keys_exist():
     routes = (SRC / "routes" / "auth.py").read_text(encoding="utf-8")
-    keys = set(re.findall(r"message=([a-z_]+)", routes))
-    assert keys == {"google_failed", "google_linked", "google_in_use"}
+    keys = set(re.findall(r'_back_to_site\(config, "[a-z]*", "([a-z_]+)"\)', routes))
+    assert keys == {"google_failed", "google_linked", "google_in_use", "signed_in"}
     assert keys <= set(messages.keys())
 
 
