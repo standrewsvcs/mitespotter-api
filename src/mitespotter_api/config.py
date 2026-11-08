@@ -60,6 +60,28 @@ def _env_choice(environ: Mapping[str, str], name: str, choices: tuple[str, ...],
     return value
 
 
+def _database_url(raw: str) -> str:
+    """A Postgres URL for psycopg 3; plain postgresql:// and postgres:// are accepted and converted.
+
+    Errors never echo the password."""
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+
+    expected = "postgresql+psycopg://user:password@host/database (percent-encode @ : / # in the password)"
+    try:
+        url = make_url(raw)
+    except ArgumentError:
+        shown = raw if "@" not in raw else "<hidden>"
+        raise ValueError(f"MITESPOTTER_DATABASE_URL is not a database URL (got {shown!r}); expected {expected}") from None
+    if url.drivername in ("postgresql", "postgres"):
+        url = url.set(drivername="postgresql+psycopg")
+    if url.drivername != "postgresql+psycopg":
+        raise ValueError(f"MITESPOTTER_DATABASE_URL must use postgresql+psycopg, got {url.drivername!r}; expected {expected}")
+    if not url.database:
+        raise ValueError(f"MITESPOTTER_DATABASE_URL names no database; expected {expected}")
+    return url.render_as_string(hide_password=False)
+
+
 # MARK: Value types
 
 @dataclass(frozen=True)
@@ -338,7 +360,7 @@ class Config:
             host=_env_str(env, "MITESPOTTER_HOST", "127.0.0.1"),
             port=_env_int(env, "MITESPOTTER_PORT", 6776),
             secret_key=secret_key,
-            database_url=_env_str(env, "MITESPOTTER_DATABASE_URL"),  # No default, must be set
+            database_url=_database_url(_env_str(env, "MITESPOTTER_DATABASE_URL")),  # No default, must be set
             sql_echo=_env_bool(env, "MITESPOTTER_SQL_ECHO", debug),
             data_dir=data_dir.expanduser().resolve(),
             max_upload_bytes=_env_int(env, "MITESPOTTER_MAX_UPLOAD_BYTES", 60 * 1024 * 1024),  # 60 MB

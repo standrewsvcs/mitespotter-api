@@ -27,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import Auth, register as register_account, request_recovery
 from ..config import Config, config as app_config
+from ..errors import field_error
 from ..google import Google, GoogleError
 from ..mail import Email, Mailer, send_safely
 from ..messages import messages
 from .. import usernames
-from ..schemas import ChangePassword, CodeEntry, Login, Me, Message, Profile, Recover, Register
+from ..schemas import ChangePassword, CodeEntry, Login, Me, Message, Profile, Recover, Register, UsernameSuggestion
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -70,20 +71,20 @@ def provide_google(state: State) -> Google:
 def _check_email(email: str) -> str:
     email = email.strip()
     if not EMAIL_PATTERN.match(email):
-        raise ClientException(messages.email_invalid)
+        raise field_error(messages.email_invalid, "email")
     return email
 
 
-def _check_password(password: str, config: Config) -> str:
+def _check_password(password: str, config: Config, field: str = "password") -> str:
     if len(password) < config.password_min_length:
-        raise ClientException(messages.password_too_short)
+        raise field_error(messages.password_too_short, field)
     return password
 
 
 def _check_username(username: str) -> str:
     username = usernames.normalise(username)
     if not usernames.is_valid(username):
-        raise ClientException(messages.username_invalid)
+        raise field_error(messages.username_invalid, "username")
     return username
 
 
@@ -139,13 +140,19 @@ async def me(auth: NamedDependency[Auth], config: NamedDependency[Config]) -> Me
     )
 
 
+@get("/username-suggestion")
+async def username_suggestion() -> UsernameSuggestion:
+    """A generated username to start the registration form with; you may keep it or change it"""
+    return UsernameSuggestion(usernames.generate())
+
+
 @post("/register", status_code=HTTP_200_OK)
 async def register(
     data: Register, db_session: NamedDependency[AsyncSession], config: NamedDependency[Config], mailer: NamedDependency[Mailer],
 ) -> Response[Message]:
     email = _check_email(data.email)
     if email.lower() != data.email_confirmation.strip().lower():
-        raise ClientException(messages.emails_differ)
+        raise field_error(messages.emails_differ, "email_confirmation")
     _check_password(data.password, config)
     username = _check_username(data.username) if data.username else None
     result = await register_account(db_session, email, data.password, _clean_name(data.name), data.anonymous, username)
@@ -187,7 +194,7 @@ async def enter_code(data: CodeEntry, db_session: NamedDependency[AsyncSession],
 
 @post("/change-password", status_code=HTTP_200_OK)
 async def change_password(auth: NamedDependency[Auth], data: ChangePassword, config: NamedDependency[Config]) -> Message:
-    _check_password(data.new_password, config)
+    _check_password(data.new_password, config, "new_password")
     await auth.change_password(data.current_password, data.new_password)
     return Message(messages.password_changed)
 
@@ -278,7 +285,7 @@ async def google_callback(
 router = Router(
     path="/auth",
     route_handlers=[
-        me, register, login, logout, logout_everywhere, recover, enter_code, change_password, update_profile,
+        me, username_suggestion, register, login, logout, logout_everywhere, recover, enter_code, change_password, update_profile,
         google_start, google_callback,
     ],
     middleware=[RateLimitConfig(rate_limit=app_config.auth_rate_limit, identifier_for_request=client_ip).middleware],

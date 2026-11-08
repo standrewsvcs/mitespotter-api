@@ -407,3 +407,40 @@ def test_google_lands_on_the_site_when_the_dev_page_is_off(make_client):
 
     stub.identity = None
     assert _google_round_trip(client).headers["location"] == "http://127.0.0.1:6776/auth?message=google_failed"
+
+
+# MARK: Form support
+
+def test_username_suggestion(client):
+    from mitespotter_api import usernames
+    from mitespotter_api.config import config
+
+    first, second = (client.get("/api/auth/username-suggestion").json()["username"] for _ in range(2))
+    for name in (first, second):
+        adjective, word = name.split(" ")
+        assert adjective in config.username_adjectives and word in usernames.words()
+
+
+@pytest.mark.parametrize(("body", "field"), [
+    ({"email": "nope", "email_confirmation": "nope"}, "email"),
+    ({"email_confirmation": "other@example.org"}, "email_confirmation"),
+    ({"password": "short"}, "password"),
+    ({"name": None}, "name"),
+    ({"username": "@@"}, "username"),
+])
+def test_registration_errors_name_their_field(client, body, field):
+    base = {"email": "f@example.org", "email_confirmation": "f@example.org", "password": PASSWORD, "name": "F"}
+    response = client.post("/api/auth/register", {**base, **body})
+    assert response.status_code == 400
+    assert response.json()["extra"] == {"field": field}
+
+
+def test_code_and_password_errors_name_their_field(client):
+    client.register("fields@example.org")
+    wrong = "000000" if client.last_code() != "000000" else "111111"
+    assert client.enter_code("fields@example.org", code=wrong).json()["extra"] == {"field": "code"}
+    client.enter_code("fields@example.org")
+    body = {"current_password": "not it at all", "new_password": "a brand new password"}
+    assert client.post("/api/auth/change-password", body).json()["extra"] == {"field": "current_password"}
+    body = {"current_password": PASSWORD, "new_password": "short"}
+    assert client.post("/api/auth/change-password", body).json()["extra"] == {"field": "new_password"}

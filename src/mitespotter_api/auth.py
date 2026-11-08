@@ -27,6 +27,7 @@ from sqlalchemy.orm import joinedload
 
 
 from .config import config
+from .errors import field_error
 from .google import GoogleIdentity
 from .mail import Email, code_email
 from .messages import messages
@@ -64,7 +65,7 @@ async def _user_by_email(db: AsyncSession, email: str) -> User | None:
 def _check_credit(name: str | None, anonymous: bool) -> None:
     """A name is needed for credit unless anonymous"""
     if not anonymous and not name:
-        raise ClientException(messages.name_required)
+        raise field_error(messages.name_required, "name")
 
 
 async def _create_user(db: AsyncSession, username: str | None = None, **fields) -> User:
@@ -206,23 +207,23 @@ class Auth:
         )
         now = _now()
         if row is None or row.expires_at <= now or row.attempts >= config.code_attempts:
-            raise ClientException(messages.code_invalid)
+            raise field_error(messages.code_invalid, "code")
         if not hmac.compare_digest(row.code_hash, _code_hash(email, purpose, code.strip())):
             row.attempts += 1
             await db.commit()  # the attempt must count even though the request fails
-            raise ClientException(messages.code_invalid)
+            raise field_error(messages.code_invalid, "code")
         row.used_at = now
 
         user = await _user_by_email(db, email)
         if user is None:
             if purpose != "register":
-                raise ClientException(messages.code_invalid)
+                raise field_error(messages.code_invalid, "code")
             user = await _create_user(
                 db, username=row.username, email=row.email, name=row.name, anonymous=bool(row.anonymous),
                 hashed_password=row.password_hash, email_verified_at=now,
             )
         elif user.is_ai_model:
-            raise ClientException(messages.code_invalid)
+            raise field_error(messages.code_invalid, "code")
         else:
             user.hashed_password = row.password_hash
             user.email_verified_at = user.email_verified_at or now
@@ -261,7 +262,7 @@ class Auth:
 
     async def change_password(self, current: str, new: str) -> None:
         if not self.user.check_password(current):
-            raise ClientException(messages.password_wrong)
+            raise field_error(messages.password_wrong, "current_password")
         self.user.set_password(new)
         await _revoke_sessions(self._db, self.user, keep=self.user_session)
 

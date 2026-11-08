@@ -484,7 +484,7 @@ You need an account to contribute, for credit: add your name, or tick `anonymous
 
 - **`Auth`.** Holding an `Auth` means being signed in. Only a successful sign-in creates one: session cookie, password, emailed code or Google. It carries `user` and its behaviour: `logout()`, `logout_everywhere()`, `change_password()`, `update_profile()`, `link_google()`, `require_registered()`. Handlers that need a signed-in user take an `auth: Auth` dependency; anything else gets 401. There is no auth service.
 - **Session cookie.** A random session id in a `Secure`, `HttpOnly`, `SameSite=Lax` cookie on `/api`; only its sha256 is stored, in `user_sessions`. Signing out deletes the row. CSRF protection is on.
-- **Registration.** Email typed twice, password once with a show/hide toggle, your name (required unless `anonymous` is ticked), optional username.
+- **Registration.** In order: "I want my contribution to be anonymous", name (required unless that's ticked), username (starts filled in with a generated one, from `GET /api/auth/username-suggestion`), email, email again, password with a show/hide toggle. Errors name their field (`"extra": {"field": "name"}`) so the form marks it; alerts follow [STYLE.md](./STYLE.md).
   - Your password matches the account at that address: you're signed in.
   - Otherwise: "We've emailed you your verification code." Entering it creates the account, or sets the new password on the existing one; verifies the email; signs out other sessions; signs you in.
   - Accounts exist only once their code is entered, so every email account is verified, and a new address looks the same as an existing one.
@@ -709,6 +709,7 @@ GET    /api/health/db                  # database reachable
 
 # auth
 GET    /api/auth/me
+GET    /api/auth/username-suggestion   # a generated username to start the form with
 POST   /api/auth/register              # signed in, or "We've emailed you your verification code."
 POST   /api/auth/login
 POST   /api/auth/logout

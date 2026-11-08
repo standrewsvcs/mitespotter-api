@@ -6,12 +6,16 @@ See [planning.md](./planning.md) for the specification and deployment.
 
 ## Getting Started
 
-You will need [uv](https://docs.astral.sh/uv/) and a running PostgreSQL 16 database.
+You will need [uv](https://docs.astral.sh/uv/) and a running PostgreSQL 16. Create a database and user matching `.env.example` (or edit `MITESPOTTER_DATABASE_URL` to match yours):
+
+```shell
+sudo -u postgres psql -c "CREATE USER mitespotter PASSWORD 'mitespotter'"
+sudo -u postgres createdb --owner mitespotter mitespotter
+```
 
 ```shell
 uv sync
 cp .env.example .env
-sed -i 's#REPLACE_URL#postgresql+psycopg://<user>:<password>@localhost/mitespotter#' .env
 export UV_ENV_FILE=.env
 uv run litestar --app mitespotter_api.app:app database upgrade   # apply migrations
 uv run mitespotter-api                                           # http://127.0.0.1:6776/api/health

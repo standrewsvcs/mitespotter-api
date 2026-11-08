@@ -224,3 +224,40 @@ def test_notices_are_escaped():
     from mitespotter_api.routes.dev import notice
 
     assert "&#x27;" in notice("signed_in")  # "You're signed in."
+
+
+def test_register_form_order(page):
+    form = page.split('data-path="/api/auth/register"')[1].split("</form>")[0]
+    order = [form.index(f'name="{name}"') for name in ("anonymous", "name", "username", "email", "email_confirmation", "password")]
+    assert order == sorted(order)
+    assert "I want my contribution to be anonymous" in form
+    assert "optional" not in form.lower()
+
+
+def test_profile_form_order(page):
+    form = page.split('id="profile-form"')[1].split("</form>")[0]
+    order = [form.index(f'name="{name}"') for name in ("anonymous", "name", "username")]
+    assert order == sorted(order)
+
+
+def test_username_starts_filled_with_a_suggestion(page):
+    assert 'call("GET", "/api/auth/username-suggestion")' in page
+    assert 'id="new-username"' in page
+
+
+def test_errors_are_never_colour_alone(page):
+    """Errors: dashed border, a triangle and the word Error. Other alerts: solid border and a dot."""
+    style = page.split("<style")[1].split("</style>")[0]
+    assert ".result.error { border: 3px dashed var(--cone)" in style
+    assert 'content: "\\25B2  Error' in style
+    assert ".result { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 2px solid" in style
+    assert 'content: "\\25CF  Done' in style
+    assert 'input[aria-invalid="true"] { border: 3px dashed var(--cone); }' in style
+    assert ".notice { padding: .75rem 1rem; border-radius: .5rem; border: 2px solid" in style
+
+
+def test_field_errors_are_marked_accessibly(page):
+    script = page.split("<script")[1]
+    assert 'setAttribute("aria-invalid", "true")' in script
+    assert 'setAttribute("aria-describedby", message.id)' in script
+    assert "json.extra && json.extra.field" in script

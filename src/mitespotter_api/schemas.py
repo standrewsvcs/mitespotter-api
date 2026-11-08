@@ -63,6 +63,10 @@ class Profile(Struct, forbid_unknown_fields=True):
     anonymous: bool | UnsetType = UNSET
 
 
+class UsernameSuggestion(Struct):
+    username: str
+
+
 class Message(Struct):
     message: str
 

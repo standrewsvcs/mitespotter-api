@@ -19,12 +19,14 @@ Authors: Maxence Morel Dierckx
 <style nonce="{{nonce}}">
 :root {
   --bg: #fafaf7; --fg: #1d1d1b; --muted: #5d5d58; --card: #ffffff; --line: #d6d6cf;
-  --accent: #8a5a00; --accent-fg: #ffffff; --ok: #1f6f3a; --bad: #a32020; --code: #f1f0ea;
+  --accent: #8a5a00; --accent-fg: #ffffff; --ok: #1f6f3a; --code: #f1f0ea;
+  --cone: #b84400; --cone-bg: #fff1e6;  /* traffic-cone orange: errors only */
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #161614; --fg: #ecebe6; --muted: #a8a7a0; --card: #201f1d; --line: #3a3935;
-    --accent: #e0a63a; --accent-fg: #1d1d1b; --ok: #6fcf8f; --bad: #ff8a80; --code: #2a2926;
+    --accent: #e0a63a; --accent-fg: #1d1d1b; --ok: #6fcf8f; --code: #2a2926;
+    --cone: #ff8c42; --cone-bg: #2e1d10;
   }
 }
 * { box-sizing: border-box; }
@@ -61,17 +63,26 @@ button, a.button {
 }
 button[type=submit], a.button { width: 100%; background: var(--accent); color: var(--accent-fg); }
 button.secondary { background: transparent; color: var(--accent); flex: none; }
-.result { margin-top: 12px; }
+/* Never colour alone: errors are dashed with a triangle and "Error", other alerts solid with a dot */
+.result { margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 2px solid var(--ok); }
+.result.error { border: 3px dashed var(--cone); background: var(--cone-bg); }
 .status { font-weight: 700; }
-.status.ok { color: var(--ok); }
-.status.bad { color: var(--bad); }
+.result.ok .status::before { content: "\25CF  Done \00B7  "; color: var(--ok); }
+.result.error .status::before { content: "\25B2  Error \00B7  "; color: var(--cone); }
+input[aria-invalid="true"] { border: 3px dashed var(--cone); }
+.field-error {
+  margin: 6px 0 0; padding: 6px 10px; font-weight: 600; color: var(--fg);
+  border-left: 4px dashed var(--cone); background: var(--cone-bg);
+}
+.field-error::before { content: "\25B2  "; color: var(--cone); }
 pre {
   margin: 4px 0 0; padding: 12px; background: var(--code); border-radius: 8px;
   white-space: pre-wrap; word-break: break-word; font-size: 15px;
 }
 .profile-link { margin-top: 12px; }
 .profile-link[hidden], .result[hidden] { display: none; }
-.notice { padding: .75rem 1rem; border-radius: .5rem; background: #fff4cc; color: #3a2f00; }
+.notice { padding: .75rem 1rem; border-radius: .5rem; border: 2px solid var(--accent); }
+.notice::before { content: "\25CF  "; color: var(--accent); }
 </style>
 </head>
 <body data-csrf-cookie="{{csrf_cookie}}" data-csrf-header="{{csrf_header}}">
@@ -104,6 +115,14 @@ pre {
 <section id="register">
   <h2>Register</h2>
   <form data-method="post" data-path="/api/auth/register" data-code-purpose="register">
+    <label class="check"><input type="checkbox" name="anonymous"> I want my contribution to be anonymous</label>
+    <label>Name <input type="text" name="name" autocomplete="name"></label>
+    <label>Username
+      <div class="row">
+        <input type="text" name="username" autocomplete="nickname" autocapitalize="none" id="register-username">
+        <button type="button" class="secondary" id="new-username">New</button>
+      </div>
+    </label>
     <label>Email <input type="email" name="email" autocomplete="email" autocapitalize="none" required></label>
     <label>Email again <input type="email" name="email_confirmation" autocomplete="email" autocapitalize="none" required></label>
     <label>Password
@@ -112,9 +131,6 @@ pre {
         <button type="button" class="secondary" data-toggle>Show</button>
       </div>
     </label>
-    <label>Name <input type="text" name="name" autocomplete="name"></label>
-    <label>Username (optional) <input type="text" name="username" autocomplete="nickname" autocapitalize="none"></label>
-    <label class="check"><input type="checkbox" name="anonymous"> Anonymous</label>
     <button type="submit">Register</button>
   </form>
 </section>
@@ -196,9 +212,9 @@ pre {
   <h2>Profile</h2>
   <p class="note">Only filled fields are sent, plus the anonymous box (set from Who am I).</p>
   <form data-method="post" data-path="/api/auth/profile" id="profile-form">
+    <label class="check"><input type="checkbox" name="anonymous"> I want my contribution to be anonymous</label>
     <label>Name <input type="text" name="name" autocomplete="name"></label>
     <label>Username <input type="text" name="username" autocomplete="nickname" autocapitalize="none"></label>
-    <label class="check"><input type="checkbox" name="anonymous"> Anonymous</label>
     <button type="submit">Save profile</button>
   </form>
 </section>
@@ -268,9 +284,30 @@ pre {
     }
     const ok = result.status >= 200 && result.status < 300;
     box.firstChild.textContent = result.label;
-    box.firstChild.classList.toggle("ok", ok);
-    box.firstChild.classList.toggle("bad", !ok);
+    box.classList.toggle("ok", ok);
+    box.classList.toggle("error", !ok);
     box.lastChild.textContent = result.body;
+    markField(form, ok ? null : result.json);
+  }
+
+  // An error naming a field ({"extra": {"field": "name"}}) marks that field: dashed border, message under it
+  function markField(form, json) {
+    for (const old of form.querySelectorAll(".field-error")) old.remove();
+    for (const field of form.querySelectorAll("[aria-invalid]")) {
+      field.removeAttribute("aria-invalid");
+      field.removeAttribute("aria-describedby");
+    }
+    const name = json && json.extra && json.extra.field;
+    const field = name && form.elements[name];
+    if (!field || !field.closest) return;
+    const message = document.createElement("p");
+    message.className = "field-error";
+    message.id = form.dataset.path.replace(/\W+/g, "-") + "-" + name + "-error";
+    message.textContent = json.detail;
+    field.closest("label").append(message);
+    field.setAttribute("aria-invalid", "true");
+    field.setAttribute("aria-describedby", message.id);
+    field.focus();
   }
 
   // The body is the form's named fields: checkboxes as booleans, empty fields left out
@@ -347,7 +384,15 @@ pre {
     setTimeout(() => { button.textContent = "Copy"; }, 1500);
   });
 
-  call("GET", "/api/health").then(whoAmI);  // the health check sets the CSRF cookie
+  // The username starts filled in with a generated one; "New" draws another
+  const usernameInput = document.getElementById("register-username");
+  async function suggestUsername() {
+    const result = await call("GET", "/api/auth/username-suggestion");
+    if (result.status === 200 && result.json) usernameInput.value = result.json.username;
+  }
+  document.getElementById("new-username").addEventListener("click", suggestUsername);
+
+  call("GET", "/api/health").then(whoAmI).then(suggestUsername);  // the health check sets the CSRF cookie
 })();
 </script>
 </body>

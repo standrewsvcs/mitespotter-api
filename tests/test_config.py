@@ -435,3 +435,31 @@ def test_dev_page_can_be_switched_off(load_config):
 
 def test_dev_page_template_ships_with_the_package(load_config):
     assert load_config().dev_page_template.is_file()
+
+
+# MARK: Database URL
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("postgresql+psycopg://u:p@localhost/db", "postgresql+psycopg://u:p@localhost/db"),
+    ("postgresql://u:p@localhost:5433/db", "postgresql+psycopg://u:p@localhost:5433/db"),
+    ("postgres://u@localhost/db", "postgresql+psycopg://u@localhost/db"),
+    ("postgresql+psycopg://u:p%40ss@localhost/db", "postgresql+psycopg://u:p%40ss@localhost/db"),
+])
+def test_database_urls_are_normalised_for_psycopg(load_config, raw, expected):
+    assert load_config(MITESPOTTER_DATABASE_URL=raw).database_url == expected
+
+
+@pytest.mark.parametrize(("raw", "match"), [
+    ("REPLACE_URL", "is not a database URL \\(got 'REPLACE_URL'\\)"),
+    ("mysql://u:p@localhost/db", "must use postgresql\\+psycopg, got 'mysql'"),
+    ("postgresql+psycopg://u:p@localhost", "names no database"),
+])
+def test_bad_database_urls_say_what_is_wrong(load_config, raw, match):
+    with pytest.raises(ValueError, match=match):
+        load_config(MITESPOTTER_DATABASE_URL=raw)
+
+
+def test_bad_database_url_errors_never_show_the_password(load_config):
+    with pytest.raises(ValueError) as error:
+        load_config(MITESPOTTER_DATABASE_URL="not a url with s3cr3t@ in it")
+    assert "s3cr3t" not in str(error.value)

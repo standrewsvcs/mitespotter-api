@@ -15,6 +15,19 @@ How Mitespotter speaks to its users. Every user-facing string lives in
 - Be plain and friendly. No exclamation marks, no jargon ("token", "session", "authenticate").
 - British spelling.
 
+## Forms
+
+- Registration asks, in order: "I want my contribution to be anonymous", name, username, email, email again, password.
+- The username starts filled in with a generated one; it is never marked optional.
+- An error names its field (`"extra": {"field": "name"}`); mark that field and put the message under it.
+
+## Alerts
+
+Never colour alone: shape and words carry the meaning, colour only reinforces it.
+
+- **Errors**: traffic-cone orange, a **dashed** border, a triangle (▲) and the word "Error". Invalid fields get the same dashed border, `aria-invalid`, and their message linked with `aria-describedby`.
+- **Everything else** (success, information): a **solid** border and a dot (●).
+
 ## Placeholders
 
 Email templates may use `{placeholders}`; other messages may not. A template's
