@@ -1,6 +1,6 @@
 """
-src/mitespotter_api/routes/db.py
-Database session and initialisation
+src/mitespotter_api/db.py
+advanced-alchemy database and Alembic configuration
 
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
@@ -8,68 +8,53 @@ Authors: Maxence Morel Dierckx
 from __future__ import annotations
 
 
-import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
+from advanced_alchemy.extensions.litestar import (
+    AlembicAsyncConfig,
+    EngineConfig,
+    SQLAlchemyAsyncConfig,
 )
-from sqlalchemy.orm import DeclarativeBase
+from alembic.autogenerate import render
+from sqlalchemy.types import TypeDecorator
 
 
-from .config import DATABASE_URL, SQL_ECHO
+from .config import Config
 
 
-# create_async_engine parses the URL and builds a pool without opening a connection;
-# this db.py can be safely imported without touching the database
-engine: AsyncEngine = create_async_engine(DATABASE_URL, echo=SQL_ECHO, pool_pre_ping=True)
+def make_alchemy_config(config: Config) -> SQLAlchemyAsyncConfig:
+    """Build the advanced-alchemy config: engine, autocommitting session dependency and Alembic.
+
+    The schema is only ever changed through Alembic, so create_all is off.
+    Building the config parses the URL and creates no connection.
+    """
+    return SQLAlchemyAsyncConfig(
+        connection_string=config.database_url,
+        engine_config=EngineConfig(
+            echo=config.sql_echo,
+            pool_pre_ping=True,
+            # Sessions run in UTC, so every timestamptz (e.g. DEFAULT now()) is read back in UTC
+            connect_args={"options": "-c timezone=UTC"},
+        ),
+        before_send_handler="autocommit_include_redirects",  # sign-in redirects (Google) commit too
+        session_dependency_key=config.session_dependency_key,
+        create_all=False,
+        alembic_config=AlembicAsyncConfig(
+            script_location=str(config.migrations_dir),
+            script_config=str(config.alembic_ini),
+            version_table_name=config.alembic_version_table,
+            render_as_batch=False,  # batch mode is for SQLite; Postgres alters in place
+        ),
+    )
 
 
-# expire_on_commit=False is required for async sessions
-async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-)
+def render_item(type_: str, obj: Any, autogen_context: Any) -> str | Literal[False]:
+    """Alembic autogenerate hook (see migrations/env.py).
 
-
-async def db_session() -> AsyncIterator[AsyncSession]:
-    """PLitestar dependency yielding an async database session"""
-    async with async_session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-
-
-async def init_db() -> None:
-    """Initialise the database extensions and create tables if they don't exist"""
-    #from . import models
-
-    async with engine.begin() as conn:
-        if SQL_ECHO:
-            print(f"Connection successful to database {DATABASE_URL}")
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS CITEXT;"))
-        #await conn.run_sync(models.Base.metadata.create_all)
-
-
-async def close_db() -> None:
-    """Close the database engine"""
-    await engine.dispose()
-
-
-@asynccontextmanager
-async def db_lifespan(app: Any) -> AsyncIterator[None]:
-    """`Litestar(..., lifespan=[db_lifespan])` context manager to initialise and close the database"""
-    await init_db()
-    try:
-        yield
-    finally:
-        await close_db()
+    Renders custom TypeDecorators such as models.UInt64 as their underlying
+    type, so revisions only depend on `sa`. False means Alembic's default rendering.
+    """
+    if type_ == "type" and isinstance(obj, TypeDecorator):
+        return render._repr_type(obj.impl, autogen_context)  # noqa: SLF001
+    return False

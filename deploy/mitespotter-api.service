@@ -1,0 +1,41 @@
+# deploy/mitespotter-api.service
+# The API behind the Cloudflare tunnel. A template: deploy/install.sh fills in the
+# @...@ placeholders and installs it to /etc/systemd/system.
+
+[Unit]
+Description=Mitespotter API
+Wants=network-online.target
+# Ordering only: Postgres may run elsewhere, and a missing unit is ignored here
+After=network-online.target postgresql.service
+
+[Service]
+Type=exec
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@REPO_DIR@
+EnvironmentFile=@ENV_FILE@
+Environment=UV_CACHE_DIR=@UV_CACHE_DIR@
+# The env file must say MITESPOTTER_ENV=prod: in dev the runner auto-reloads on file changes
+ExecStart=@UV@ run --frozen mitespotter-api
+Restart=on-failure
+RestartSec=5
+
+# Hardening. The checkout stays writable for .venv and data/, the uv cache for uv's locks.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@REPO_DIR@ -@UV_CACHE_DIR@
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

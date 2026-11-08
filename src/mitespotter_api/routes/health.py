@@ -1,6 +1,6 @@
 """
 src/mitespotter_api/routes/health.py
-Health check route handler
+Health check route handlers
 
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
@@ -17,14 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @get("/health", name="health_check", tags=["health"])
 async def health_check() -> dict[str, str]:
-    # Liveness check
+    """Liveness check; touches nothing"""
     return {"status": "ok"}
 
 
 @get("/health/db", name="health_check_db", tags=["health"])
-async def health_check_db(session: NamedDependency[AsyncSession]) -> dict[str, str]:
+async def health_check_db(db_session: NamedDependency[AsyncSession]) -> dict[str, str]:
+    """Database reachability check"""
     try:
-        await session.execute(text("SELECT 1"))
+        await db_session.execute(text("SELECT 1"))
     except Exception as e:
         raise ServiceUnavailableException("Database is not available") from e
     return {"status": "ok", "database": "ok"}

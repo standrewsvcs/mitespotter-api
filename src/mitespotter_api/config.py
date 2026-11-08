@@ -1,6 +1,10 @@
 """
-src/mitespotter_api/routes/config.py
-Environment, server, and database configuration
+src/mitespotter_api/config.py
+Environment, server, database, storage and dataset configuration
+
+Everything read-only lives on the frozen Config: values read from the
+environment, fixed domain values, and paths derived from both. Use the
+module-level `config` instance, or build one with Config.from_env(mapping).
 
 Created: 2026-09-17
 Authors: Maxence Morel Dierckx
@@ -9,26 +13,28 @@ from __future__ import annotations
 
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
+from types import MappingProxyType
+from typing import ClassVar
 
 
 # MARK: Env helpers
 
-def _env_str(name: str, default: str | None = None) -> str:
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        raw = default
-    if raw is None:
+def _env_str(environ: Mapping[str, str], name: str, default: str | None = None) -> str:
+    raw = environ.get(name, "").strip()
+    if raw:
+        return raw
+    if default is None:
         raise ValueError(f"{name} must be set")
-    return str(raw).strip()
+    return str(default).strip()
 
 
-def _env_bool(name: str, default: bool | None = None) -> bool:
-    raw = os.environ.get(name, "").strip().lower()
-    if raw is None or raw == "":
-        if default is None:
-            raise ValueError(f"'{name}' must be set")
+def _env_bool(environ: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = environ.get(name, "").strip().lower()
+    if raw == "":
         return default
     if raw in ("1", "true", "yes", "on"):
         return True
@@ -37,11 +43,9 @@ def _env_bool(name: str, default: bool | None = None) -> bool:
     raise ValueError(f"'{name}' must be a boolean, got '{raw}'")
 
 
-def _env_int(name: str, default: int | None = None) -> int:
-    raw = os.environ.get(name, "").strip()
-    if raw is None or raw == "":
-        if default is None:
-            raise ValueError(f"'{name}' must be set")
+def _env_int(environ: Mapping[str, str], name: str, default: int) -> int:
+    raw = environ.get(name, "").strip()
+    if raw == "":
         return default
     try:
         return int(raw)
@@ -49,133 +53,331 @@ def _env_int(name: str, default: int | None = None) -> int:
         raise ValueError(f"'{name}' must be an integer, got '{raw}'") from e
 
 
-# MARK: Runtime env
-
-ENVIRONMENTS = ("dev", "test", "prod")
-ENVIRONMENT = _env_str("MITESPOTTER_ENV", "dev")
-if ENVIRONMENT not in ENVIRONMENTS:
-    raise ValueError(f"MITESPOTTER_ENV must be one of {ENVIRONMENTS}, got '{ENVIRONMENT}'")
-
-IS_PRODUCTION = ENVIRONMENT == "prod"
-IS_TEST = ENVIRONMENT == "test"
-DEBUG = _env_bool("MITESPOTTER_DEBUG", not IS_PRODUCTION)
+def _env_choice(environ: Mapping[str, str], name: str, choices: tuple[str, ...], default: str) -> str:
+    value = _env_str(environ, name, default)
+    if value not in choices:
+        raise ValueError(f"{name} must be one of {choices}, got '{value}'")
+    return value
 
 
-# MARK: Server
+def _database_url(raw: str) -> str:
+    """A Postgres URL for psycopg 3; plain postgresql:// and postgres:// are accepted and converted.
 
-HOST = _env_str("MITESPOTTER_HOST", "127.0.0.1")
-PORT = _env_int("MITESPOTTER_PORT", 6776)
+    Errors never echo the password."""
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
 
-
-# MARK: Secrets
-
-def _resolve_secret_key() -> str:
-    key = _env_str("MITESPOTTER_SECRET_KEY", "")
-    if key:
-        return key
-    if IS_PRODUCTION:
-        raise RuntimeError("MITESPOTTER_SECRET_KEY must be set when MITESPOTTER_ENV=prod")
-    return "dev-secret-key"
-
-
-SECRET_KEY = _resolve_secret_key()
-
-
-# MARK: Database
-
-DATABASE_URL = _env_str("MITESPOTTER_DATABASE_URL", None)   # No default, must be set
-SQL_ECHO = _env_bool("MITESPOTTER_SQL_ECHO", DEBUG)
+    expected = "postgresql+psycopg://user:password@host/database (percent-encode @ : / # in the password)"
+    try:
+        url = make_url(raw)
+    except ArgumentError:
+        shown = raw if "@" not in raw else "<hidden>"
+        raise ValueError(f"MITESPOTTER_DATABASE_URL is not a database URL (got {shown!r}); expected {expected}") from None
+    if url.drivername in ("postgresql", "postgres"):
+        url = url.set(drivername="postgresql+psycopg")
+    if url.drivername != "postgresql+psycopg":
+        raise ValueError(f"MITESPOTTER_DATABASE_URL must use postgresql+psycopg, got {url.drivername!r}; expected {expected}")
+    if not url.database:
+        raise ValueError(f"MITESPOTTER_DATABASE_URL names no database; expected {expected}")
+    return url.render_as_string(hide_password=False)
 
 
-# MARK: Paths
+# MARK: Value types
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DATA_DIR = Path(_env_str("MITESPOTTER_DATA_DIR", _REPO_ROOT / "data")).expanduser().resolve()
-
-BACKUPS_DIR    = DATA_DIR / "backups"
-DATASETS_DIR   = DATA_DIR / "datasets"
-IMAGES_DIR     = DATA_DIR / "images"
-ORIGINALS_DIR  = DATA_DIR / "originals"
-PYRAMIDS_DIR   = DATA_DIR / "pyramids"
-THUMBNAILS_DIR = DATA_DIR / "thumbnails"
-
-DATA_DIRS = (
-    BACKUPS_DIR,
-    DATASETS_DIR,
-    IMAGES_DIR,
-    ORIGINALS_DIR,
-    PYRAMIDS_DIR,
-    THUMBNAILS_DIR
-)
-
-
-def create_data_dirs() -> None:
-    for directory in DATA_DIRS:
-        directory.mkdir(parents=True, exist_ok=True)
-
-
-# MARK: Ingest
-
-MAX_UPLOAD_BYTES = _env_int("MITESPOTTER_MAX_UPLOAD_BYTES", 60 * 1024 * 1024)  # 60 MB
-JPEG_QUALITY = _env_int("MITESPOTTER_JPEG_QUALITY", 95)
-
-
-# MARK: Dataset
-
-SPLITS = ("train", "val", "test")
-SPLIT_TRAIN_BELOW = 70  # First 70% of the dataset is used for training
-SPLIT_VAL_BELOW = 85    # Next 15% of the dataset is used for validation
-                        # Remaining 15% of the dataset is used for testing
-
-
-@dataclass
+@dataclass(frozen=True)
 class Category:
     id: int
     name: str
     supercategory: str
 
 
-CATEGORY_DEBRIS = Category(id=1, name="debris", supercategory="non-mite")
-CATEGORY_VARROA = Category(id=2, name="varroa destructor", supercategory="mite")
-CATEGORIES = (CATEGORY_DEBRIS, CATEGORY_VARROA)
-CATEGORY_BY_ID = {category.id: category for category in CATEGORIES}
-
-COCO_LICENSE = {
-    "id": 1,
-    "name": "CC BY 4.0",
-    "url": "https://creativecommons.org/licenses/by/4.0/"
-}
-
-COCO_CONTRIBUTOR = "St Andrews Volunteer Coding Society"
-COCO_DESCRIPTION = "Mitespotter annotated dataset of bee parasitic mites on sticky boards"
-COCO_INFO_YEAR = 2026
-
-COCO_FILENAMES = {
-    "train": "instances_train.json",
-    "val": "instances_val.json",
-    "test": "instances_test.json"
-}
-
-MANIFEST_FILENAME = "manifest.json"
-VERSION_DIR_PREFIX = "mitespotter_v"
-SNAPSHOT_DIR_PREFIX = "mitespotter_"
-SNAPSHOT_DISCLAIMER = (
-    "The following is an internal-only snapshot of the mitespotter.org dataset. "
-    "It should not be cited or distributed. For the official versions, see "
-    "https://mitespotter.org/download"
-)
+@dataclass(frozen=True)
+class License:
+    id: int
+    name: str
+    url: str
 
 
-# MARK: File serving
+# MARK: Config
 
-IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+@dataclass(frozen=True)
+class Config:
+    """Application configuration: values read from the environment, plus fixed domain values"""
+
+    ENVIRONMENTS: ClassVar[tuple[str, ...]] = ("dev", "test", "prod")
+    STORAGE_BACKENDS: ClassVar[tuple[str, ...]] = ("local", "r2")
+    MAILERS: ClassVar[tuple[str, ...]] = ("outbox", "resend")
+
+    # Read from the environment
+    environment: str
+    debug: bool
+    host: str
+    port: int
+    secret_key: str
+    database_url: str
+    sql_echo: bool
+    data_dir: Path
+    max_upload_bytes: int
+    jpeg_quality: int
+    storage: str
+    r2_account_id: str | None
+    r2_bucket: str | None
+    r2_access_key_id: str | None
+    r2_secret_access_key: str | None
+    public_data_url: str
+    public_url: str
+    mailer: str
+    resend_api_key: str | None
+    email_from: str
+    google_client_id: str | None
+    google_client_secret: str | None
+    dev_page: bool  # GET /api/dev, a test page that only calls the public API
+
+    # API
+    api_prefix: str = "/api"
+    api_title: str = "Mitespotter API"
+    api_version: str = "0.1.0"
+
+    # Database
+    session_dependency_key: str = "db_session"
+    migrations_dir: Path = Path(__file__).resolve().parent / "migrations"
+    alembic_version_table: str = "alembic_version"
+
+    # Domain values; the database CHECK constraints are built from these
+    splits: tuple[str, ...] = ("train", "val", "test")
+    image_event_types: tuple[str, ...] = ("upload", "complete", "verify", "reject", "delete")
+    annotation_event_types: tuple[str, ...] = ("create", "update", "confirm", "delete")
+    email_code_purposes: tuple[str, ...] = ("register", "recover")
+    report_reasons: tuple[str, ...] = (
+        "not_a_board",
+        "duplicate",
+        "unusable_quality",
+        "personal_or_inappropriate",
+        "incorrect_annotations",  # verified images only
+        "other",
+    )
+    categories: tuple[Category, ...] = (
+        Category(id=1, name="debris", supercategory="non-mite"),
+        Category(id=2, name="varroa destructor", supercategory="mite"),
+    )
+
+    # Dataset split: buckets [0, train) train, [train, val) val, the rest test
+    split_train_below: int = 70
+    split_val_below: int = 85
+
+    # Dataset export
+    coco_license: License = License(id=1, name="CC BY 4.0", url="https://creativecommons.org/licenses/by/4.0/")
+    coco_contributor: str = "St Andrews Volunteer Code Society"
+    coco_description: str = "Mitespotter annotated dataset of bee parasitic mites on sticky boards"
+    coco_info_year: int = 2026
+    coco_filenames: Mapping[str, str] = MappingProxyType({
+        "train": "instances_train.json",
+        "val": "instances_val.json",
+        "test": "instances_test.json",
+    })
+    manifest_filename: str = "MANIFEST.json"
+    version_dir_prefix: str = "mitespotter_v"
+    snapshot_dir_prefix: str = "mitespotter_"
+    snapshot_disclaimer: str = (
+        "The following is an internal-only snapshot of the mitespotter.org dataset. "
+        "It should not be cited or distributed. For the official versions, see "
+        "https://mitespotter.org/download"
+    )
+
+    # File serving
+    immutable_cache_control: str = "public, max-age=31536000, immutable"
+
+    # Sessions
+    session_cookie_name: str = "mitespotter_session"
+    session_lifetime: timedelta = timedelta(days=30)
+    csrf_cookie_name: str = "mitespotter_csrf"
+    csrf_header_name: str = "x-csrftoken"
+    auth_rate_limit: tuple[str, int] = ("minute", 30)  # per client IP, every /api/auth request
+
+    # Passwords (argon2-cffi defaults for hashing parameters)
+    password_min_length: int = 8
+    password_max_length: int = 1024
+
+    # Emailed codes
+    code_digits: int = 6
+    code_lifetime: timedelta = timedelta(minutes=15)
+    code_attempts: int = 5
+    code_resend_interval: timedelta = timedelta(minutes=1)
+    code_retention: timedelta = timedelta(days=1)  # used or expired codes are deleted after this
+    resend_api_url: str = "https://api.resend.com/emails"
+
+    # Google (OpenID Connect)
+    google_issuer: str = "https://accounts.google.com"
+    google_authorization_endpoint: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    google_token_endpoint: str = "https://oauth2.googleapis.com/token"
+    google_jwks_uri: str = "https://www.googleapis.com/oauth2/v3/certs"
+    google_scopes: str = "openid email profile"
+    google_flow_cookie_name: str = "mitespotter_google"
+    google_flow_lifetime: timedelta = timedelta(minutes=10)
+
+    # Developer test page
+    dev_page_template: Path = Path(__file__).resolve().parent / "dev.html"
+
+    # Usernames: chosen, or "<adjective> <word>", the word drawn from this codebase's own identifiers; not unique
+    username_adjectives: tuple[str, ...] = (
+        "amber", "bold", "bright", "brisk", "buzzy", "calm", "clever", "curious",
+        "dapper", "deft", "eager", "fleet", "fuzzy", "gentle", "golden", "hardy",
+        "honeyed", "humble", "jolly", "keen", "kind", "lively", "lucky", "merry",
+        "mellow", "nimble", "patient", "plucky", "quick", "quiet", "rapid", "sharp",
+        "sleek", "spry", "steady", "sunny", "swift", "tidy", "trusty", "vivid",
+        "wary", "warm", "wild", "wise", "zesty", "zippy", "dusky", "sturdy",
+    )
+    username_min_length: int = 3
+    username_max_length: int = 30
+    username_pattern: str = r"^[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?$"
+    username_word_lengths: tuple[int, int] = (4, 10)
+    username_stopwords: tuple[str, ...] = (  # identifiers that make poor or alarming names
+        "admin", "auth", "cookie", "csrf", "hash", "hashed", "hmac", "jwks", "nonce", "password", "passwords",
+        "secret", "secrets", "session", "sessions", "token", "tokens", "verifier", "self", "none", "true", "false",
+        "denied", "dummy", "error", "errors", "exception", "exceptions", "expired", "failed", "invalid", "missing",
+        "purge", "revoke", "unknown", "violates", "wrong", "delete", "deleted", "deletes",
+    )
+
+    # Credit: a name is required unless the account is anonymous
+    name_max_length: int = 200
+
+    # MARK: Derived
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "prod"
+
+    @property
+    def is_test(self) -> bool:
+        return self.environment == "test"
+
+    @property
+    def r2_endpoint_url(self) -> str:
+        return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.public_url.startswith("https://")
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def google_redirect_uri(self) -> str:
+        return f"{self.public_url}{self.api_prefix}/auth/google/callback"
+
+    def profile_url(self, user_id: int) -> str:
+        """The public profile page you can copy and share"""
+        return f"{self.public_url}/u/{user_id}"
+
+    @property
+    def alembic_ini(self) -> Path:
+        return self.migrations_dir / "alembic.ini"
+
+    @property
+    def category_by_id(self) -> Mapping[int, Category]:
+        return MappingProxyType({category.id: category for category in self.categories})
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.data_dir / "backups"
+
+    @property
+    def datasets_dir(self) -> Path:
+        return self.data_dir / "datasets"
+
+    @property
+    def images_dir(self) -> Path:
+        return self.data_dir / "images"
+
+    @property
+    def originals_dir(self) -> Path:
+        return self.data_dir / "originals"
+
+    @property
+    def pyramids_dir(self) -> Path:
+        return self.data_dir / "pyramids"
+
+    @property
+    def thumbnails_dir(self) -> Path:
+        return self.data_dir / "thumbnails"
+
+    @property
+    def data_dirs(self) -> tuple[Path, ...]:
+        return (
+            self.backups_dir,
+            self.datasets_dir,
+            self.images_dir,
+            self.originals_dir,
+            self.pyramids_dir,
+            self.thumbnails_dir,
+        )
+
+    def create_data_dirs(self) -> None:
+        for directory in self.data_dirs:
+            directory.mkdir(parents=True, exist_ok=True)
+
+    # MARK: Loading
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Config:
+        env = os.environ if environ is None else environ
+
+        environment = _env_choice(env, "MITESPOTTER_ENV", cls.ENVIRONMENTS, "dev")
+        is_production = environment == "prod"
+        debug = _env_bool(env, "MITESPOTTER_DEBUG", not is_production)
+
+        secret_key = env.get("MITESPOTTER_SECRET_KEY", "").strip()
+        if not secret_key:
+            if is_production:
+                raise RuntimeError("MITESPOTTER_SECRET_KEY must be set when MITESPOTTER_ENV=prod")
+            secret_key = "dev-secret-key"
+
+        storage = _env_choice(env, "MITESPOTTER_STORAGE", cls.STORAGE_BACKENDS, "local")
+        r2 = {
+            name: env.get(f"MITESPOTTER_{name.upper()}", "").strip() or None
+            for name in ("r2_account_id", "r2_bucket", "r2_access_key_id", "r2_secret_access_key")
+        }
+        if storage == "r2":
+            missing = [f"MITESPOTTER_{name.upper()}" for name, value in r2.items() if value is None]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set when MITESPOTTER_STORAGE=r2")
+
+        mailer = _env_choice(env, "MITESPOTTER_MAILER", cls.MAILERS, "resend" if is_production else "outbox")
+        resend_api_key = env.get("MITESPOTTER_RESEND_API_KEY", "").strip() or None
+        if is_production and mailer != "resend":
+            raise ValueError("MITESPOTTER_MAILER must be 'resend' when MITESPOTTER_ENV=prod")
+        if mailer == "resend" and resend_api_key is None:
+            raise ValueError("MITESPOTTER_RESEND_API_KEY must be set when MITESPOTTER_MAILER=resend")
+
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        data_dir = Path(_env_str(env, "MITESPOTTER_DATA_DIR", str(repo_root / "data")))
+
+        return cls(
+            environment=environment,
+            debug=debug,
+            host=_env_str(env, "MITESPOTTER_HOST", "127.0.0.1"),
+            port=_env_int(env, "MITESPOTTER_PORT", 6776),
+            secret_key=secret_key,
+            database_url=_database_url(_env_str(env, "MITESPOTTER_DATABASE_URL")),  # No default, must be set
+            sql_echo=_env_bool(env, "MITESPOTTER_SQL_ECHO", debug),
+            data_dir=data_dir.expanduser().resolve(),
+            max_upload_bytes=_env_int(env, "MITESPOTTER_MAX_UPLOAD_BYTES", 60 * 1024 * 1024),  # 60 MB
+            jpeg_quality=_env_int(env, "MITESPOTTER_JPEG_QUALITY", 95),
+            storage=storage,
+            public_data_url=_env_str(env, "MITESPOTTER_PUBLIC_DATA_URL", "/data").rstrip("/"),
+            public_url=_env_str(env, "MITESPOTTER_PUBLIC_URL", "http://127.0.0.1:6776").rstrip("/"),
+            mailer=mailer,
+            resend_api_key=resend_api_key,
+            email_from=_env_str(env, "MITESPOTTER_EMAIL_FROM", "Mitespotter <noreply@mitespotter.org>"),
+            google_client_id=env.get("MITESPOTTER_GOOGLE_CLIENT_ID", "").strip() or None,
+            google_client_secret=env.get("MITESPOTTER_GOOGLE_CLIENT_SECRET", "").strip() or None,
+            dev_page=_env_bool(env, "MITESPOTTER_DEV_PAGE", not is_production),
+            **r2,
+        )
 
 
-# MARK: Email
-
-# TODO: /verify-email, /reset-password, mailing list, etc.
+config = Config.from_env()
 
 
-# MARK: Jobs
-
-# TODO: Unused until jobs/nightly.py & jobs/weekly.py are implemented
